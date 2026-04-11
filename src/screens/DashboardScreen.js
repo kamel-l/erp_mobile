@@ -1,16 +1,21 @@
 // src/screens/DashboardScreen.js
-
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
   TouchableOpacity, Dimensions,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, formatDA } from '../services/theme';
-import { MOCK_DATA } from '../services/api';
 import {
   Card, KpiCard, Badge, SectionTitle, Divider,
   AlertDot, RowBetween, LoadingView,
 } from '../components/UIComponents';
+import {
+  getDashboardStatsOffline,
+  getSalesWeekOffline,
+  getLowStockOffline,
+  getProductsOffline,
+} from '../database/offlineStorage';
 
 const { width } = Dimensions.get('window');
 const BAR_MAX_HEIGHT = 80;
@@ -21,15 +26,56 @@ export default function DashboardScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      // TODO: Remplacer par dashboardAPI.getStats() quand le backend est prêt
-      await new Promise(r => setTimeout(r, 400));
-      setData(MOCK_DATA);
-    } catch {
-      setData(MOCK_DATA);
+      // Récupérer les données depuis AsyncStorage
+      const stats = await getDashboardStatsOffline();
+      const salesWeek = await getSalesWeekOffline();
+      const lowStock = await getLowStockOffline();
+      const products = await getProductsOffline();
+
+      // Construire l'objet data avec valeurs par défaut si absentes
+      setData({
+        stats: stats || {
+          salesToday: 0,
+          growth: 0,
+          activeOrders: 0,
+          lowStockCount: lowStock.length || 0,
+          totalProducts: products.length || 0,
+          monthlyRevenue: 0,
+          netProfit: 0,
+          grossMargin: 0,
+        },
+        salesWeek: salesWeek.length ? salesWeek : [],
+        lowStock: lowStock,
+      });
+    } catch (error) {
+      console.error('Erreur chargement dashboard:', error);
+      // Fallback vide
+      setData({
+        stats: {
+          salesToday: 0,
+          growth: 0,
+          activeOrders: 0,
+          lowStockCount: 0,
+          totalProducts: 0,
+          monthlyRevenue: 0,
+          netProfit: 0,
+          grossMargin: 0,
+        },
+        salesWeek: [],
+        lowStock: [],
+      });
     }
   }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -39,7 +85,7 @@ export default function DashboardScreen() {
 
   if (!data) return <LoadingView />;
 
-  const maxVal = Math.max(...data.salesWeek.map(d => d.total));
+  const maxVal = data.salesWeek.length ? Math.max(...data.salesWeek.map(d => d.total)) : 1;
 
   return (
     <ScrollView
@@ -61,46 +107,60 @@ export default function DashboardScreen() {
       </View>
 
       {/* Bar chart */}
-      <SectionTitle>Ventes — 7 derniers jours</SectionTitle>
-      <Card>
-        <View style={styles.chartWrap}>
-          {data.salesWeek.map((d, i) => {
-            const h = Math.max((d.total / maxVal) * BAR_MAX_HEIGHT, 4);
-            const isToday = i === 6;
-            return (
-              <View key={d.day} style={styles.barCol}>
-                <View style={[styles.bar, { height: h, backgroundColor: isToday ? COLORS.primaryLight : COLORS.primary, opacity: isToday ? 0.5 : 1 }]} />
-                <Text style={styles.barLabel}>{d.day}</Text>
-              </View>
-            );
-          })}
-        </View>
-        <RowBetween style={{ marginTop: 8 }}>
-          <Text style={styles.metaText}>Total semaine</Text>
-          <Text style={styles.metaValue}>{formatDA(data.salesWeek.reduce((s, d) => s + d.total, 0))}</Text>
-        </RowBetween>
-      </Card>
+      {data.salesWeek.length > 0 && (
+        <>
+          <SectionTitle>Ventes — 7 derniers jours</SectionTitle>
+          <Card>
+            <View style={styles.chartWrap}>
+              {data.salesWeek.map((d, i) => {
+                const h = Math.max((d.total / maxVal) * BAR_MAX_HEIGHT, 4);
+                const isToday = i === 6;
+                return (
+                  <View key={d.day} style={styles.barCol}>
+                    <View style={[styles.bar, { height: h, backgroundColor: isToday ? COLORS.primaryLight : COLORS.primary, opacity: isToday ? 0.5 : 1 }]} />
+                    <Text style={styles.barLabel}>{d.day}</Text>
+                  </View>
+                );
+              })}
+            </View>
+            <RowBetween style={{ marginTop: 8 }}>
+              <Text style={styles.metaText}>Total semaine</Text>
+              <Text style={styles.metaValue}>{formatDA(data.salesWeek.reduce((s, d) => s + d.total, 0))}</Text>
+            </RowBetween>
+          </Card>
+        </>
+      )}
 
-      {/* Alerts */}
+      {/* Alerts - affichage du stock critique */}
       <SectionTitle>Alertes</SectionTitle>
       <Card>
-        <View style={styles.alertRow}>
-          <AlertDot color={COLORS.danger} />
-          <Text style={styles.alertText}>Stock critique : Ordinateur HP</Text>
-          <Badge status="critical" customLabel="2 restants" />
-        </View>
-        <Divider />
-        <View style={styles.alertRow}>
-          <AlertDot color={COLORS.warning} />
-          <Text style={styles.alertText}>Facture FAC-1042 non payée</Text>
-          <Badge status="pending" />
-        </View>
-        <Divider />
-        <View style={styles.alertRow}>
-          <AlertDot color={COLORS.success} />
-          <Text style={styles.alertText}>Commande #234 expédiée</Text>
-          <Badge status="paid" customLabel="Livré" />
-        </View>
+        {data.lowStock && data.lowStock.length > 0 ? (
+          data.lowStock.slice(0, 3).map((item, idx) => (
+            <View key={item.id || idx}>
+              <View style={styles.alertRow}>
+                <AlertDot color={COLORS.danger} />
+                <Text style={styles.alertText}>Stock critique : {item.name}</Text>
+                <Badge status="critical" customLabel={`${item.current}/${item.min}`} />
+              </View>
+              {idx < Math.min(data.lowStock.length, 3) - 1 && <Divider />}
+            </View>
+          ))
+        ) : (
+          <View style={styles.alertRow}>
+            <AlertDot color={COLORS.success} />
+            <Text style={styles.alertText}>Aucune alerte pour le moment</Text>
+          </View>
+        )}
+        {/* Ajout d'alertes mockées si aucune */}
+        {(!data.lowStock || data.lowStock.length === 0) && (
+          <>
+            <Divider />
+            <View style={styles.alertRow}>
+              <AlertDot color={COLORS.warning} />
+              <Text style={styles.alertText}>Aucune facture en attente</Text>
+            </View>
+          </>
+        )}
       </Card>
 
       {/* Quick Stats */}

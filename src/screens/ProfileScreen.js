@@ -1,11 +1,11 @@
 // src/screens/ProfileScreen.js
-
 import React, { useState } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Switch, Alert, TextInput,
 } from 'react-native';
-import { COLORS, formatDA } from '../services/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { COLORS } from '../services/theme';
 import { Card, Divider, RowBetween, Avatar } from '../components/UIComponents';
 
 export default function ProfileScreen({ navigation, onLogout }) {
@@ -18,9 +18,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
   const user = { username: 'admin', role: 'Administrateur', initials: 'AD' };
 
   const testConnection = async () => {
-    Alert.alert('Test de connexion', `Tentative sur http://${serverIP}:5000/api/health...`, [
-      { text: 'OK' },
-    ]);
+    Alert.alert('Test de connexion', `Tentative sur http://${serverIP}:5000/api/health...`, [{ text: 'OK' }]);
   };
 
   const handleLogout = () => {
@@ -30,6 +28,34 @@ export default function ProfileScreen({ navigation, onLogout }) {
     ]);
   };
 
+  // Vider TOUTE la base de données (AsyncStorage)
+  const clearAllData = async () => {
+    Alert.alert(
+      '⚠️ Vider toute la base de données',
+      'Cette action supprimera TOUS les produits, ventes, clients, employés et paramètres.\n\nL\'application reviendra à l\'écran d\'import.\n\nPour que les tableaux de bord se réinitialisent, fermez et rouvrez l\'application manuellement.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Oui, tout supprimer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.clear();
+              // Réinitialiser la navigation vers l'écran d'import
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'StockImport' }],
+              });
+              Alert.alert('Données vidées', 'Base de données effacée. Pour une réinitialisation complète des affichages, fermez et rouvrez l\'application.');
+            } catch (error) {
+              Alert.alert('Erreur', 'Impossible de vider les données : ' + error.message);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const MENU_ITEMS = [
     { icon: '🔔', label: 'Notifications', onPress: () => navigation.navigate('Notifications') },
     { icon: '📊', label: 'Exporter les données', onPress: () => Alert.alert('Export', 'Génère un fichier Excel complet.') },
@@ -37,12 +63,10 @@ export default function ProfileScreen({ navigation, onLogout }) {
     { icon: '❓', label: 'Aide & Support', onPress: () => Alert.alert('Aide', 'Documentation : github.com/votre-erp') },
     { icon: '📱', label: 'Version de l\'app', onPress: null, value: '1.0.0' },
     { icon: '📦', label: 'Gestion du stock CSV', onPress: () => navigation.navigate('StockImport') },
-    { icon: '🔔', label: 'Notifications', onPress: () => navigation.navigate('Notifications') },
   ];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-
       {/* User Card */}
       <Card style={styles.userCard}>
         <View style={styles.userInfo}>
@@ -85,7 +109,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
         </TouchableOpacity>
       </Card>
 
-      {/* Préférences */}
+      {/* Preferences */}
       <Text style={styles.sectionTitle}>Préférences</Text>
       <Card>
         <RowBetween>
@@ -153,6 +177,15 @@ export default function ProfileScreen({ navigation, onLogout }) {
         ))}
       </Card>
 
+      {/* Danger zone: clear all data */}
+      <Text style={styles.sectionTitle}>Zone dangereuse</Text>
+      <Card>
+        <TouchableOpacity style={styles.dangerBtn} onPress={clearAllData}>
+          <Text style={styles.dangerBtnText}>🗑️ Vider TOUTE la base de données</Text>
+          <Text style={styles.dangerBtnSub}>Supprime tous les produits, ventes, paramètres</Text>
+        </TouchableOpacity>
+      </Card>
+
       {/* Logout */}
       <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
         <Text style={styles.logoutTxt}>🚪 Se déconnecter</Text>
@@ -189,6 +222,9 @@ const styles = StyleSheet.create({
   menuLabel: { flex: 1, fontSize: 14, color: '#212121' },
   menuValue: { fontSize: 13, color: '#9E9E9E' },
   menuArrow: { fontSize: 20, color: '#BDBDBD' },
+  dangerBtn: { alignItems: 'center', paddingVertical: 12 },
+  dangerBtnText: { color: COLORS.danger, fontSize: 16, fontWeight: '600' },
+  dangerBtnSub: { fontSize: 11, color: COLORS.textSecondary, marginTop: 4, textAlign: 'center' },
   logoutBtn: {
     backgroundColor: '#FFEBEE', borderRadius: 12, padding: 14,
     alignItems: 'center', marginTop: 16, borderWidth: 0.5, borderColor: '#FFCDD2',

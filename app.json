@@ -1,56 +1,22 @@
 {
   "expo": {
-    "name": "DAR ELSSALEM ERP",
+    "name": "ERP Mobile",
     "slug": "erp-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1976D2"
-    },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.darelssalem.erp"
-    },
     "android": {
+      "package": "com.kamelat.erpmobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1976D2"
-      },
-      "package": "com.darelssalem.erp",
-      "versionCode": 1,
-      "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "INTERNET",
-        "ACCESS_NETWORK_STATE",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
-      ]
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
+        "backgroundColor": "#FFFFFF"
+      }
     },
     "plugins": [
-      [
-        "expo-camera",
-        {
-          "cameraPermission": "Autoriser l'accès caméra pour scanner les codes-barres."
-        }
-      ],
-      "expo-secure-store"
-    ],
-    "extra": {
-      "eas": {
-        "projectId": "aedb280c-260a-494f-9b9b-d9e252a8147a"
-      }
-    }
+      "expo-build-properties",
+      "expo-secure-store",
+      "expo-sharing"
+    ]
   }
 }
