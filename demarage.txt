@@ -1,0 +1,8 @@
+# Décompresser, puis :
+bash install.sh
+
+# Terminal 1 — Backend :
+python backend/api_server.py
+
+# Terminal 2 — App :
+npx expo start

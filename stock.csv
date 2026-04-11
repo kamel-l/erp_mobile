@@ -1,0 +1,7 @@
+name,price,stock_quantity,min_stock,category,barcode
+Ordinateur HP ProBook,75000,2,2,Informatique,HP001
+Souris Logitech MX,1500,8,10,Accessoires,LOG001
+Écran Samsung 24",25000,3,3,Informatique,SAM001
+Clavier HP Slim,2500,35,10,Accessoires,HP002
+Bureau Professionnel,35000,12,2,Mobilier,BUR001
+Chaise Ergonomique,15000,8,5,Mobilier,CHA001
