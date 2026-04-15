@@ -9,16 +9,12 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Clipboard from 'expo-clipboard';
 import Papa from 'papaparse';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, formatDA } from '../services/theme';
 import {
   Card, KpiCard, Badge, SectionTitle, Divider,
   ProgressBar, SearchBar,
 } from '../components/UIComponents';
-
-const STORAGE_KEYS = {
-  PRODUCTS: '@erp_products',
-};
+import { getLocalProducts, saveProductsLocally } from '../database/database';
 
 const DEFAULT_STOCK = [
   { id: 1, name: 'Ordinateur HP ProBook', barcode: 'HP001', category: 'Informatique', price: 75000, stock_quantity: 2, min_stock: 2 },
@@ -40,23 +36,18 @@ export default function StockScreen() {
   const [csvText, setCsvText] = useState('');
   const [importing, setImporting] = useState(false);
 
-  // Charger les produits depuis AsyncStorage (SANS création automatique)
   const loadProducts = useCallback(async () => {
     try {
-      const productsJSON = await AsyncStorage.getItem(STORAGE_KEYS.PRODUCTS);
-      if (productsJSON) {
-        setProducts(JSON.parse(productsJSON));
-      } else {
-        setProducts([]); // stock vide
-      }
+      const prods = await getLocalProducts();
+      setProducts(prods || []);
     } catch (error) {
       console.error('Erreur chargement produits:', error);
+      setProducts([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Recharger à chaque fois que l'écran devient actif (après vidage depuis un autre écran)
   useFocusEffect(
     useCallback(() => {
       loadProducts();
@@ -73,7 +64,6 @@ export default function StockScreen() {
     setRefreshing(false);
   };
 
-  // Initialiser le stock par défaut (manuellement)
   const initializeDefaultStock = async () => {
     Alert.alert(
       'Initialiser le stock',
@@ -85,8 +75,8 @@ export default function StockScreen() {
           onPress: async () => {
             setLoading(true);
             try {
-              await AsyncStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(DEFAULT_STOCK));
-              setProducts(DEFAULT_STOCK);
+              await saveProductsLocally(DEFAULT_STOCK);
+              await loadProducts();
               Alert.alert('Succès', `Stock initialisé avec ${DEFAULT_STOCK.length} produits`);
             } catch (error) {
               Alert.alert('Erreur', error.message);
@@ -105,11 +95,6 @@ export default function StockScreen() {
     return 'ok';
   };
 
-  const saveProducts = async (newProducts) => {
-    await AsyncStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(newProducts));
-    setProducts(newProducts);
-  };
-
   const mergeProducts = (existing, newItems) => {
     const existingMap = new Map();
     existing.forEach(p => existingMap.set(p.barcode || p.name, p));
@@ -122,7 +107,6 @@ export default function StockScreen() {
     return Array.from(existingMap.values());
   };
 
-  // Import depuis fichier CSV
   const importFromFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -149,7 +133,8 @@ export default function StockScreen() {
           return;
         }
         const updatedProducts = mergeProducts(products, newProducts);
-        await saveProducts(updatedProducts);
+        await saveProductsLocally(updatedProducts);
+        await loadProducts();
         Alert.alert('Succès', `${newProducts.length} produits importés depuis le fichier`);
       }
     } catch (error) {
@@ -159,7 +144,6 @@ export default function StockScreen() {
     }
   };
 
-  // Import depuis presse-papiers
   const importFromClipboard = async () => {
     try {
       const text = await Clipboard.getStringAsync();
@@ -195,13 +179,17 @@ export default function StockScreen() {
       return;
     }
     const updatedProducts = mergeProducts(products, newProducts);
-    saveProducts(updatedProducts).then(() => {
-      Alert.alert('Succès', `${newProducts.length} produits importés depuis le presse-papiers`);
-      setModalVisible(false);
-      setCsvText('');
-    }).catch(() => {
-      Alert.alert('Erreur', 'Échec de l\'enregistrement');
-    }).finally(() => setImporting(false));
+    saveProductsLocally(updatedProducts)
+      .then(() => {
+        Alert.alert('Succès', `${newProducts.length} produits importés depuis le presse-papiers`);
+        setModalVisible(false);
+        setCsvText('');
+        loadProducts();
+      })
+      .catch(() => {
+        Alert.alert('Erreur', 'Échec de l\'enregistrement');
+      })
+      .finally(() => setImporting(false));
   };
 
   const filtered = products.filter(p =>
@@ -228,7 +216,6 @@ export default function StockScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}
       >
-        {/* KPIs */}
         <View style={styles.kpiRow}>
           <KpiCard value={totalProducts} label="Total produits" color={COLORS.primary} style={{ marginRight: 6 }} />
           <KpiCard value={lowStockCount} label="Stock critique" color={COLORS.danger} style={{ marginLeft: 6 }} />
@@ -237,14 +224,12 @@ export default function StockScreen() {
           <KpiCard value={formatDA(totalValue)} label="Valeur stock" color={COLORS.success} style={{ marginRight: 6 }} />
         </View>
 
-        {/* Bouton d'initialisation si stock vide */}
         {totalProducts === 0 && (
           <TouchableOpacity style={styles.initButton} onPress={initializeDefaultStock}>
             <Text style={styles.initButtonText}>📦 Initialiser le stock par défaut</Text>
           </TouchableOpacity>
         )}
 
-        {/* Barre de recherche + boutons import */}
         <View style={styles.searchRow}>
           <View style={{ flex: 1 }}>
             <SearchBar value={search} onChangeText={setSearch} placeholder="Chercher un produit..." />
@@ -257,7 +242,6 @@ export default function StockScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Tabs */}
         <View style={styles.tabRow}>
           <TouchableOpacity style={[styles.tab, tab === 'all' && styles.tabActive]} onPress={() => setTab('all')}>
             <Text style={[styles.tabText, tab === 'all' && styles.tabTextActive]}>Tous</Text>
@@ -267,7 +251,6 @@ export default function StockScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Liste des produits */}
         <SectionTitle>{tab === 'low' ? 'Produits en stock faible' : 'Inventaire complet'}</SectionTitle>
         <Card style={{ paddingVertical: 4 }}>
           {filtered.map((p, i) => {
@@ -303,7 +286,6 @@ export default function StockScreen() {
         </Card>
       </ScrollView>
 
-      {/* Modal pour coller du CSV */}
       <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>

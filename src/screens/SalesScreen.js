@@ -2,16 +2,16 @@
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Modal, Alert,
+  TouchableOpacity, Modal, Alert, FlatList,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useRoute } from '@react-navigation/native';
 import { COLORS, formatDA } from '../services/theme';
 import {
   Card, Badge, Avatar, SectionTitle, Divider,
   RowBetween, ProgressBar, SearchBar,
 } from '../components/UIComponents';
 import NewSaleModal from './modals/NewSaleModal';
-import { getSalesOffline } from '../database/offlineStorage'; // ou localStorage selon ta structure
+import { getLocalSales } from '../database/database';
 
 const AVATAR_COLORS = [
   { bg: '#E3F2FD', text: '#0D47A1' },
@@ -21,16 +21,20 @@ const AVATAR_COLORS = [
   { bg: '#FCE4EC', text: '#880E4F' },
 ];
 
-export default function SalesScreen() {
+export default function SalesScreen({ navigation }) {
+  const route = useRoute();
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [sales, setSales] = useState([]);
   const [selectedSale, setSelectedSale] = useState(null);
   const [newSaleVisible, setNewSaleVisible] = useState(false);
+  const [preselectedClient, setPreselectedClient] = useState(null);
+  const [invoiceModalVisible, setInvoiceModalVisible] = useState(false);
+  const [currentInvoice, setCurrentInvoice] = useState(null);
 
   const loadSales = useCallback(async () => {
     try {
-      const cachedSales = await getSalesOffline();
+      const cachedSales = await getLocalSales();
       setSales(cachedSales || []);
     } catch (error) {
       console.error('Erreur chargement ventes:', error);
@@ -44,6 +48,17 @@ export default function SalesScreen() {
     }, [loadSales])
   );
 
+  React.useEffect(() => {
+    if (route.params?.clientId) {
+      setPreselectedClient({
+        id: route.params.clientId,
+        name: route.params.clientName || '',
+      });
+      setNewSaleVisible(true);
+      navigation.setParams({ clientId: undefined, clientName: undefined });
+    }
+  }, [route.params]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadSales();
@@ -52,13 +67,26 @@ export default function SalesScreen() {
 
   const filtered = sales.filter(s =>
     (s.invoice && s.invoice.toLowerCase().includes(search.toLowerCase())) ||
-    (s.client && s.client.toLowerCase().includes(search.toLowerCase()))
+    (s.client_name && s.client_name.toLowerCase().includes(search.toLowerCase()))
   );
 
-  // Statistiques mockées (pour l’exemple, à remplacer par des calculs réels si besoin)
   const totalCA = sales.reduce((sum, s) => sum + (s.total || 0), 0);
   const paidCount = sales.filter(s => s.status === 'paid').length;
   const pendingCount = sales.filter(s => s.status === 'pending').length;
+
+  const showInvoice = (sale) => {
+    setCurrentInvoice(sale);
+    setInvoiceModalVisible(true);
+  };
+
+  const renderProductItem = ({ item }) => (
+    <View style={styles.invoiceProductRow}>
+      <Text style={[styles.invoiceProductCol, styles.productNameCol]} numberOfLines={1}>{item.name}</Text>
+      <Text style={[styles.invoiceProductCol, styles.productQtyCol]}>{item.quantity}</Text>
+      <Text style={[styles.invoiceProductCol, styles.productPriceCol]}>{formatDA(item.unit_price)}</Text>
+      <Text style={[styles.invoiceProductCol, styles.productTotalCol]}>{formatDA(item.total)}</Text>
+    </View>
+  );
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
@@ -80,15 +108,17 @@ export default function SalesScreen() {
               return (
                 <TouchableOpacity key={sale.id} onPress={() => setSelectedSale(sale)} activeOpacity={0.7}>
                   <View style={styles.saleRow}>
-                    <Avatar initials={sale.initials || sale.client?.substring(0,2) || 'CL'} bg={av.bg} textColor={av.text} />
+                    <Avatar initials={sale.initials || sale.client_name?.substring(0, 2) || 'CL'} bg={av.bg} textColor={av.text} />
                     <View style={styles.saleInfo}>
-                      <Text style={styles.saleName}>{sale.invoice} — {sale.client}</Text>
-                      <Text style={styles.saleSub}>{sale.items || 0} article(s) • {sale.date || ''}</Text>
+                      <Text style={styles.saleName}>{sale.invoice} — {sale.client_name}</Text>
+                      <Text style={styles.saleSub}>
+                        {`${(sale.items && sale.items.length) || 0} article(s) • ${sale.date || ''}`}
+                      </Text>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
                       <Text style={[styles.saleAmount, {
                         color: sale.status === 'paid' ? COLORS.success :
-                               sale.status === 'cancelled' ? COLORS.danger : COLORS.primary
+                          sale.status === 'cancelled' ? COLORS.danger : COLORS.primary
                       }]}>{formatDA(sale.total || 0)}</Text>
                       <Badge status={sale.status || 'pending'} />
                     </View>
@@ -121,7 +151,7 @@ export default function SalesScreen() {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Detail Modal (identique) */}
+      {/* Modal de détail de la vente (ancienne) */}
       <Modal visible={!!selectedSale} animationType="slide" transparent onRequestClose={() => setSelectedSale(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -129,14 +159,12 @@ export default function SalesScreen() {
               <>
                 <RowBetween style={{ marginBottom: 16 }}>
                   <Text style={styles.modalTitle}>{selectedSale.invoice}</Text>
-                  <TouchableOpacity onPress={() => setSelectedSale(null)}>
-                    <Text style={styles.closeBtn}>✕</Text>
-                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setSelectedSale(null)}><Text style={styles.closeBtn}>✕</Text></TouchableOpacity>
                 </RowBetween>
                 {[
-                  { label: 'Client', value: selectedSale.client },
+                  { label: 'Client', value: selectedSale.client_name },
                   { label: 'Date', value: selectedSale.date },
-                  { label: 'Articles', value: String(selectedSale.items) },
+                  { label: 'Articles', value: String((selectedSale.items && selectedSale.items.length) || 0) },
                   { label: 'Sous-total HT', value: formatDA(Math.round((selectedSale.total || 0) / 1.19)) },
                   { label: 'TVA (19%)', value: formatDA((selectedSale.total || 0) - Math.round((selectedSale.total || 0) / 1.19)) },
                   { label: 'Total TTC', value: formatDA(selectedSale.total || 0), color: COLORS.primary, bold: true },
@@ -150,8 +178,8 @@ export default function SalesScreen() {
                   <Text style={styles.modalLabel}>Statut</Text>
                   <Badge status={selectedSale.status || 'pending'} />
                 </View>
-                <TouchableOpacity style={styles.pdfBtn} onPress={() => Alert.alert('Export PDF', 'Génère et partage la facture PDF.')}>
-                  <Text style={styles.pdfBtnText}>📄 Exporter en PDF</Text>
+                <TouchableOpacity style={styles.pdfBtn} onPress={() => showInvoice(selectedSale)}>
+                  <Text style={styles.pdfBtnText}>📄 Voir la facture détaillée</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -159,7 +187,69 @@ export default function SalesScreen() {
         </View>
       </Modal>
 
-      <NewSaleModal visible={newSaleVisible} onClose={() => setNewSaleVisible(false)} onSaved={loadSales} />
+      {/* Modal de la facture détaillée avec tableau des produits */}
+      <Modal visible={invoiceModalVisible} animationType="slide" transparent={false} onRequestClose={() => setInvoiceModalVisible(false)}>
+        <View style={styles.invoiceContainer}>
+          <View style={styles.invoiceHeader}>
+            <TouchableOpacity onPress={() => setInvoiceModalVisible(false)} style={styles.invoiceBack}>
+              <Text style={styles.invoiceBackText}>← Retour</Text>
+            </TouchableOpacity>
+            <Text style={styles.invoiceTitle}>Facture détaillée</Text>
+            <View style={{ width: 40 }} />
+          </View>
+          {currentInvoice && (
+            <ScrollView style={styles.invoiceContent}>
+              <View style={styles.invoiceSection}>
+                <Text style={styles.invoiceNumber}>{currentInvoice.invoice}</Text>
+                <Text style={styles.invoiceClient}>Client : {currentInvoice.client_name}</Text>
+                <Text style={styles.invoiceDate}>Date : {currentInvoice.date || new Date(currentInvoice.sale_date).toLocaleDateString()}</Text>
+              </View>
+
+              {/* En-tête du tableau */}
+              <View style={styles.productTableHeader}>
+                <Text style={[styles.productTableHeaderText, styles.productNameCol]}>Produit</Text>
+                <Text style={[styles.productTableHeaderText, styles.productQtyCol]}>Qté</Text>
+                <Text style={[styles.productTableHeaderText, styles.productPriceCol]}>Prix U.</Text>
+                <Text style={[styles.productTableHeaderText, styles.productTotalCol]}>Total</Text>
+              </View>
+
+              {/* Liste des produits scrollable */}
+              <FlatList
+                data={currentInvoice.items || []}
+                keyExtractor={(item, index) => index.toString()}
+                renderItem={renderProductItem}
+                scrollEnabled={true}
+                style={styles.productList}
+              />
+
+              {/* Totaux */}
+              <View style={styles.invoiceTotals}>
+                <RowBetween><Text>Total HT</Text><Text>{formatDA(Math.round((currentInvoice.total || 0) / 1.19))}</Text></RowBetween>
+                <RowBetween><Text>TVA (19%)</Text><Text>{formatDA((currentInvoice.total || 0) - Math.round((currentInvoice.total || 0) / 1.19))}</Text></RowBetween>
+                <RowBetween><Text style={{ fontWeight: 'bold' }}>Total TTC</Text><Text style={{ fontWeight: 'bold', color: COLORS.primary }}>{formatDA(currentInvoice.total || 0)}</Text></RowBetween>
+              </View>
+
+              <TouchableOpacity style={styles.exportPdfBtn} onPress={() => Alert.alert('Export PDF', 'Fonctionnalité à implémenter')}>
+                <Text style={styles.exportPdfBtnText}>📎 Exporter en PDF</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+        </View>
+      </Modal>
+
+      <NewSaleModal
+        visible={newSaleVisible}
+        onClose={() => {
+          setNewSaleVisible(false);
+          setPreselectedClient(null);
+        }}
+        onSaved={() => {
+          loadSales();
+          setNewSaleVisible(false);
+          setPreselectedClient(null);
+        }}
+        initialClient={preselectedClient}
+      />
     </View>
   );
 }
@@ -185,4 +275,26 @@ const styles = StyleSheet.create({
   modalValue: { fontSize: 14, fontWeight: '500', color: COLORS.text },
   pdfBtn: { backgroundColor: COLORS.primary, borderRadius: 10, height: 46, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   pdfBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  invoiceContainer: { flex: 1, backgroundColor: '#F5F5F5' },
+  invoiceHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
+  invoiceBack: { padding: 8 },
+  invoiceBackText: { fontSize: 16, color: COLORS.primary },
+  invoiceTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
+  invoiceContent: { flex: 1, padding: 16 },
+  invoiceSection: { marginBottom: 20 },
+  invoiceNumber: { fontSize: 20, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
+  invoiceClient: { fontSize: 16, color: COLORS.text, marginBottom: 4 },
+  invoiceDate: { fontSize: 14, color: COLORS.textSecondary },
+  productTableHeader: { flexDirection: 'row', backgroundColor: '#E0E0E0', padding: 10, borderRadius: 8, marginBottom: 8 },
+  productTableHeaderText: { fontWeight: 'bold', color: COLORS.text, fontSize: 12 },
+  productNameCol: { flex: 3 },
+  productQtyCol: { flex: 1, textAlign: 'center' },
+  productPriceCol: { flex: 2, textAlign: 'right' },
+  productTotalCol: { flex: 2, textAlign: 'right' },
+  productList: { marginBottom: 20, maxHeight: 300 },
+  invoiceProductRow: { flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: '#E0E0E0' },
+  invoiceProductCol: { fontSize: 12, color: COLORS.text },
+  invoiceTotals: { marginTop: 20, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#E0E0E0', gap: 8 },
+  exportPdfBtn: { backgroundColor: COLORS.success, borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 20 },
+  exportPdfBtnText: { color: '#fff', fontWeight: '600' },
 });

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Dimensions,
+  Dimensions,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, formatDA } from '../services/theme';
@@ -14,8 +14,8 @@ import {
   getDashboardStatsOffline,
   getSalesWeekOffline,
   getLowStockOffline,
-  getProductsOffline,
-} from '../database/offlineStorage';
+  getLocalProducts,
+} from '../database/database';
 
 const { width } = Dimensions.get('window');
 const BAR_MAX_HEIGHT = 80;
@@ -26,30 +26,27 @@ export default function DashboardScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      // Récupérer les données depuis AsyncStorage
       const stats = await getDashboardStatsOffline();
       const salesWeek = await getSalesWeekOffline();
       const lowStock = await getLowStockOffline();
-      const products = await getProductsOffline();
+      const products = await getLocalProducts();
 
-      // Construire l'objet data avec valeurs par défaut si absentes
       setData({
         stats: stats || {
           salesToday: 0,
           growth: 0,
           activeOrders: 0,
-          lowStockCount: lowStock.length || 0,
-          totalProducts: products.length || 0,
+          lowStockCount: lowStock.length,
+          totalProducts: products.length,
           monthlyRevenue: 0,
           netProfit: 0,
           grossMargin: 0,
         },
-        salesWeek: salesWeek.length ? salesWeek : [],
-        lowStock: lowStock,
+        salesWeek: salesWeek || [],
+        lowStock: lowStock || [],
       });
     } catch (error) {
       console.error('Erreur chargement dashboard:', error);
-      // Fallback vide
       setData({
         stats: {
           salesToday: 0,
@@ -96,7 +93,6 @@ export default function DashboardScreen() {
     >
       <SectionTitle>Résumé du jour</SectionTitle>
 
-      {/* KPI Grid */}
       <View style={styles.kpiRow}>
         <KpiCard value={formatDA(data.stats.salesToday)} label="Ventes aujourd'hui" color={COLORS.primary} style={{ marginRight: 6 }} />
         <KpiCard value={`+${data.stats.growth}%`} label="Croissance" color={COLORS.success} style={{ marginLeft: 6 }} />
@@ -106,7 +102,6 @@ export default function DashboardScreen() {
         <KpiCard value={data.stats.lowStockCount} label="Stock critique" color={COLORS.danger} style={{ marginLeft: 6 }} />
       </View>
 
-      {/* Bar chart */}
       {data.salesWeek.length > 0 && (
         <>
           <SectionTitle>Ventes — 7 derniers jours</SectionTitle>
@@ -131,10 +126,9 @@ export default function DashboardScreen() {
         </>
       )}
 
-      {/* Alerts - affichage du stock critique */}
       <SectionTitle>Alertes</SectionTitle>
       <Card>
-        {data.lowStock && data.lowStock.length > 0 ? (
+        {data.lowStock.length > 0 ? (
           data.lowStock.slice(0, 3).map((item, idx) => (
             <View key={item.id || idx}>
               <View style={styles.alertRow}>
@@ -151,19 +145,8 @@ export default function DashboardScreen() {
             <Text style={styles.alertText}>Aucune alerte pour le moment</Text>
           </View>
         )}
-        {/* Ajout d'alertes mockées si aucune */}
-        {(!data.lowStock || data.lowStock.length === 0) && (
-          <>
-            <Divider />
-            <View style={styles.alertRow}>
-              <AlertDot color={COLORS.warning} />
-              <Text style={styles.alertText}>Aucune facture en attente</Text>
-            </View>
-          </>
-        )}
       </Card>
 
-      {/* Quick Stats */}
       <SectionTitle>Indicateurs mensuels</SectionTitle>
       <Card>
         <RowBetween>

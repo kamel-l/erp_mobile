@@ -6,8 +6,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppNavigator from './src/navigation/AppNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { syncManager } from './src/services/api';
+import { initDatabase } from './src/database/database';
 
 export default function App() {
+  useEffect(() => {
+    initDatabase();
+  }, []);
   useEffect(() => {
     // Synchronisation périodique toutes les 5 minutes
     const interval = setInterval(() => {

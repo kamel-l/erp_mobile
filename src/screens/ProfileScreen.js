@@ -4,9 +4,9 @@ import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Switch, Alert, TextInput,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../services/theme';
 import { Card, Divider, RowBetween, Avatar } from '../components/UIComponents';
+import { clearAllData } from '../database/database';
 
 export default function ProfileScreen({ navigation, onLogout }) {
   const [serverIP, setServerIP] = useState('192.168.1.100');
@@ -28,28 +28,22 @@ export default function ProfileScreen({ navigation, onLogout }) {
     ]);
   };
 
-  // Vider TOUTE la base de données (AsyncStorage)
-  const clearAllData = async () => {
+  const handleClearAll = async () => {
     Alert.alert(
       '⚠️ Vider toute la base de données',
-      'Cette action supprimera TOUS les produits, ventes, clients, employés et paramètres.\n\nL\'application reviendra à l\'écran d\'import.\n\nPour que les tableaux de bord se réinitialisent, fermez et rouvrez l\'application manuellement.',
+      'Cette action supprimera TOUTES les données (produits, ventes, clients, etc.). L\'application va redémarrer.',
       [
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Oui, tout supprimer',
           style: 'destructive',
           onPress: async () => {
-            try {
-              await AsyncStorage.clear();
-              // Réinitialiser la navigation vers l'écran d'import
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'StockImport' }],
-              });
-              Alert.alert('Données vidées', 'Base de données effacée. Pour une réinitialisation complète des affichages, fermez et rouvrez l\'application.');
-            } catch (error) {
-              Alert.alert('Erreur', 'Impossible de vider les données : ' + error.message);
-            }
+            await clearAllData(); // Vide SQLite
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'StockImport' }],
+            });
+            Alert.alert('Données vidées', 'Veuillez fermer et rouvrir l\'application pour une réinitialisation complète.');
           }
         }
       ]
@@ -180,7 +174,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
       {/* Danger zone: clear all data */}
       <Text style={styles.sectionTitle}>Zone dangereuse</Text>
       <Card>
-        <TouchableOpacity style={styles.dangerBtn} onPress={clearAllData}>
+        <TouchableOpacity style={styles.dangerBtn} onPress={handleClearAll}>
           <Text style={styles.dangerBtnText}>🗑️ Vider TOUTE la base de données</Text>
           <Text style={styles.dangerBtnSub}>Supprime tous les produits, ventes, paramètres</Text>
         </TouchableOpacity>

@@ -12,6 +12,7 @@ import DashboardScreen from '../screens/DashboardScreen';
 import SalesScreen from '../screens/SalesScreen';
 import StockScreen from '../screens/StockScreen';
 import HRScreen from '../screens/HRScreen';
+import ClientsScreen from '../screens/ClientsScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
@@ -52,8 +53,8 @@ function MainTabs({ navigation }) {
         options={{ title: 'Ventes & Facturation', tabBarIcon: ({ focused }) => <TabIcon emoji="💰" label="Ventes" focused={focused} /> }} />
       <Tab.Screen name="Stock" component={StockScreen}
         options={{ title: 'Stocks & Inventaire', tabBarIcon: ({ focused }) => <TabIcon emoji="📦" label="Stock" focused={focused} /> }} />
-      <Tab.Screen name="RH" component={HRScreen}
-        options={{ title: 'RH & Employés', tabBarIcon: ({ focused }) => <TabIcon emoji="👥" label="RH" focused={focused} /> }} />
+      <Tab.Screen name="RH" component={ClientsScreen}
+        options={{ title: 'Clients', tabBarIcon: ({ focused }) => <TabIcon emoji="👥" label="RH" focused={focused} /> }} />
       <Tab.Screen name="Rapports" component={ReportsScreen}
         options={{ title: 'Rapports & Analyses', tabBarIcon: ({ focused }) => <TabIcon emoji="📈" label="Rapports" focused={focused} /> }} />
       <Tab.Screen name="Profil"

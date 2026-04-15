@@ -20,7 +20,7 @@ import {
   removePendingAction,
   setLastSyncTime,
   getLastSyncTime,
-} from '../database/offlineStorage';
+} from '../database/database'; // ← nouveau chemin
 import { MOCK_DATA } from './mockData';
 
 // ─── CONFIGURATION ────────────────────────────────────────────────────────────

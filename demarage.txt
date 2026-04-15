@@ -6,3 +6,5 @@ python backend/api_server.py
 
 # Terminal 2 — App :
 npx expo start
+
+npx expo start --lan
