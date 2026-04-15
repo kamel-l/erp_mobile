@@ -57,10 +57,8 @@ export const authAPI = {
       const res = await api.post('/auth/login', { username, password });
       await SecureStore.setItemAsync('auth_token', res.data.token);
       await SecureStore.setItemAsync('user_data', JSON.stringify(res.data.user));
-
-      // Synchroniser les données après login
-      await syncManager.syncAllData();
-
+      // Commenter la ligne suivante pour éviter l'erreur
+      // await syncManager.syncAllData();
       return res.data;
     } catch (error) {
       console.error('Login error:', error);
