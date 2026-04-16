@@ -1,10 +1,10 @@
 // src/navigation/AppNavigator.js
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../services/theme';
 
 import LoginScreen from '../screens/LoginScreen';
@@ -17,15 +17,80 @@ import ReportsScreen from '../screens/ReportsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import StockImportScreen from '../screens/StockImportScreen_Enhanced';
+import { getLocalProducts, getLocalSales } from '../database/database';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+const STORAGE_KEYS = {
+  DISMISSED_NOTIFS: '@erp_dismissed_notifications',
+  READ_NOTIFS: '@erp_read_notifications',
+};
+
 function NotifBell({ navigation }) {
+  const [count, setCount] = useState(0);
+
+  const loadNotifCount = async () => {
+    try {
+      // Récupérer les IDs des notifications supprimées et lues
+      const dismissedJson = await AsyncStorage.getItem(STORAGE_KEYS.DISMISSED_NOTIFS);
+      const readJson = await AsyncStorage.getItem(STORAGE_KEYS.READ_NOTIFS);
+      const dismissedIds = dismissedJson ? JSON.parse(dismissedJson) : [];
+      const readIds = readJson ? JSON.parse(readJson) : [];
+
+      const products = await getLocalProducts();
+      const sales = await getLocalSales();
+      let unreadCount = 0;
+
+      // Stock critique
+      products.forEach(product => {
+        const current = product.stock_quantity || 0;
+        const min = product.min_stock || 0;
+        const notifId = `stock-${product.id}`;
+        if (current <= min && !dismissedIds.includes(notifId) && !readIds.includes(notifId)) {
+          unreadCount++;
+        }
+      });
+
+      // Paiements en attente
+      sales.forEach(sale => {
+        const notifId = `payment-${sale.id}`;
+        if (sale.status !== 'paid' && sale.status !== 'cancelled' && !dismissedIds.includes(notifId) && !readIds.includes(notifId)) {
+          unreadCount++;
+        }
+      });
+
+      // Ventes récentes (moins de 24h)
+      const oneDayAgo = new Date();
+      oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+      sales.forEach(sale => {
+        const saleDate = new Date(sale.sale_date || sale.date);
+        const notifId = `sale-${sale.id}`;
+        if (saleDate > oneDayAgo && !dismissedIds.includes(notifId) && !readIds.includes(notifId)) {
+          unreadCount++;
+        }
+      });
+
+      setCount(unreadCount);
+    } catch (error) {
+      console.error('Erreur chargement badge notif:', error);
+    }
+  };
+
+  useEffect(() => {
+    loadNotifCount();
+    const unsubscribe = navigation.addListener('focus', loadNotifCount);
+    return unsubscribe;
+  }, [navigation]);
+
   return (
     <TouchableOpacity onPress={() => navigation.navigate('Notifications')} style={{ marginRight: 14 }}>
       <Text style={{ fontSize: 22 }}>🔔</Text>
-      <View style={styles.badge}><Text style={styles.badgeTxt}>2</Text></View>
+      {count > 0 && (
+        <View style={styles.badge}>
+          <Text style={styles.badgeTxt}>{count > 99 ? '99+' : count}</Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -85,6 +150,6 @@ const styles = StyleSheet.create({
   iconWrapActive: { backgroundColor: '#E3F2FD' },
   emoji: { fontSize: 19 },
   label: { fontSize: 9, fontWeight: '500', marginTop: 2 },
-  badge: { position: 'absolute', top: -4, right: -4, backgroundColor: COLORS.danger, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
-  badgeTxt: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  badge: { position: 'absolute', top: -4, right: -4, backgroundColor: COLORS.danger, borderRadius: 10, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  badgeTxt: { color: '#fff', fontSize: 10, fontWeight: '700', textAlign: 'center' },
 });

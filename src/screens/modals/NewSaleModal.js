@@ -1,4 +1,4 @@
-// src/screens/modals/NewSaleModal.js (version avec modal personnalisé pour le prix)
+// src/screens/modals/NewSaleModal.js
 import React, { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity,
@@ -19,15 +19,23 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [priceModalVisible, setPriceModalVisible] = useState(false);
-  const [editingItem, setEditingItem] = useState(null);
-  const [newPrice, setNewPrice] = useState('');
+  const [clientModalVisible, setClientModalVisible] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
+  const [clientsList, setClientsList] = useState([]);
+  const [productModalVisible, setProductModalVisible] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [quantity, setQuantity] = useState('1');
+  const [unitPrice, setUnitPrice] = useState('');
 
   useEffect(() => {
     if (visible) {
       loadProducts();
-      if (initialClient) setClient(initialClient);
-      else setClient(null);
+      loadClients();
+      if (initialClient) {
+        setClient(initialClient);
+      } else {
+        setClient(null);
+      }
       setSearch('');
       setCart([]);
     }
@@ -38,22 +46,35 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     setProducts(prods);
   };
 
-  const getExistingClients = async () => await getLocalClients();
+  const loadClients = async () => {
+    const clients = await getLocalClients();
+    setClientsList(clients);
+  };
 
-  const ensureClient = async (clientName) => {
-    if (!clientName?.trim()) return null;
-    const clients = await getExistingClients();
-    const existing = clients.find(c => c.name.toLowerCase() === clientName.trim().toLowerCase());
-    if (existing) return existing;
+  const selectClient = (selected) => {
+    setClient(selected);
+    setClientModalVisible(false);
+  };
+
+  const addNewClient = async () => {
+    if (!newClientName.trim()) {
+      Alert.alert('Erreur', 'Veuillez saisir un nom');
+      return;
+    }
     const newClient = {
       id: Date.now(),
-      name: clientName.trim(),
-      phone: '', email: '', address: '',
+      name: newClientName.trim(),
+      phone: '',
+      email: '',
+      address: '',
       created_at: new Date().toISOString(),
     };
-    const updatedClients = [...clients, newClient];
-    await saveClientsLocally(updatedClients);
-    return newClient;
+    const updated = [...clientsList, newClient];
+    await saveClientsLocally(updated);
+    setClientsList(updated);
+    setClient(newClient);
+    setNewClientName('');
+    setClientModalVisible(false);
   };
 
   const filteredProducts = products.filter(p =>
@@ -61,15 +82,47 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     (p.barcode && p.barcode.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const addToCart = (product) => {
+  const openProductModal = (product) => {
     const existing = cart.find(item => item.id === product.id);
     if (existing) {
-      setCart(cart.map(item =>
-        item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-      ));
+      setQuantity(String(existing.quantity));
+      setUnitPrice(String(existing.price));
     } else {
-      setCart([...cart, { ...product, quantity: 1 }]);
+      setQuantity('1');
+      setUnitPrice(String(product.price));
     }
+    setSelectedProduct(product);
+    setProductModalVisible(true);
+  };
+
+  const addOrUpdateCart = () => {
+    if (!selectedProduct) return;
+    const qty = parseInt(quantity, 10);
+    if (isNaN(qty) || qty <= 0) {
+      Alert.alert('Erreur', 'La quantité doit être un nombre positif');
+      return;
+    }
+    const price = parseFloat(unitPrice);
+    if (isNaN(price) || price <= 0) {
+      Alert.alert('Erreur', 'Le prix doit être un nombre positif');
+      return;
+    }
+    const existingIndex = cart.findIndex(item => item.id === selectedProduct.id);
+    if (existingIndex !== -1) {
+      const updatedCart = [...cart];
+      updatedCart[existingIndex] = {
+        ...updatedCart[existingIndex],
+        quantity: qty,
+        price: price,
+      };
+      setCart(updatedCart);
+    } else {
+      setCart([...cart, { ...selectedProduct, quantity: qty, price: price }]);
+    }
+    setProductModalVisible(false);
+    setSelectedProduct(null);
+    setQuantity('1');
+    setUnitPrice('');
   };
 
   const updateQuantity = (id, delta) => {
@@ -82,28 +135,29 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     }).filter(Boolean));
   };
 
-  // Ouvre le modal de modification du prix
-  const openPriceModal = (item) => {
-    setEditingItem(item);
-    setNewPrice(String(item.price));
-    setPriceModalVisible(true);
-  };
-
-  // Valide et applique la modification du prix
-  const confirmPriceChange = () => {
-    const price = parseFloat(newPrice);
-    if (isNaN(price) || price <= 0) {
-      Alert.alert('Erreur', 'Veuillez entrer un prix valide');
-      return;
-    }
-    setCart(cart.map(cartItem =>
-      cartItem.id === editingItem.id
-        ? { ...cartItem, price: price }
-        : cartItem
-    ));
-    setPriceModalVisible(false);
-    setEditingItem(null);
-    setNewPrice('');
+  const editPrice = (item) => {
+    Alert.prompt(
+      'Modifier le prix unitaire',
+      `Prix actuel : ${formatDA(Number(item.price))}`,
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Modifier',
+          onPress: (newPrice) => {
+            const price = parseFloat(newPrice);
+            if (isNaN(price) || price <= 0) {
+              Alert.alert('Erreur', 'Veuillez entrer un prix valide');
+              return;
+            }
+            setCart(cart.map(cartItem =>
+              cartItem.id === item.id ? { ...cartItem, price: price } : cartItem
+            ));
+          }
+        }
+      ],
+      'plain-text',
+      String(item.price)
+    );
   };
 
   const totalHT = cart.reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity)), 0);
@@ -111,8 +165,8 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
   const totalTTC = totalHT + tva;
 
   const saveSale = async () => {
-    if (!client?.name?.trim()) {
-      Alert.alert('Erreur', 'Veuillez saisir le nom du client');
+    if (!client) {
+      Alert.alert('Erreur', 'Veuillez sélectionner un client');
       return;
     }
     if (cart.length === 0) {
@@ -121,11 +175,9 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     }
     setLoading(true);
     try {
-      const finalClient = await ensureClient(client.name);
-      if (!finalClient) throw new Error('Client invalide');
       const saleData = {
-        client_id: finalClient.id,
-        client_name: finalClient.name,
+        client_id: client.id,
+        client_name: client.name,
         date: new Date().toLocaleDateString(),
         items: cart.length,
         total: totalTTC,
@@ -153,8 +205,9 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     }
   };
 
-  const renderCartItem = ({ item }) => (
-    <View style={styles.cartTableRow}>
+  // Rendu d'un élément du panier (utilisé dans ScrollView)
+  const renderCartItem = (item) => (
+    <View key={item.id} style={styles.cartTableRow}>
       <Text style={[styles.cartTableCell, styles.cartProductName]} numberOfLines={1}>{item.name}</Text>
       <View style={styles.cartQuantityCell}>
         <TouchableOpacity onPress={() => updateQuantity(item.id, -1)} style={styles.qtyBtnSmall}>
@@ -165,7 +218,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
           <Text style={styles.qtyBtnText}>+</Text>
         </TouchableOpacity>
       </View>
-      <TouchableOpacity onPress={() => openPriceModal(item)} style={styles.priceTouchable}>
+      <TouchableOpacity onPress={() => editPrice(item)} style={styles.priceTouchable}>
         <Text style={[styles.cartTableCell, styles.cartPriceCell]}>{formatDA(Number(item.price))}</Text>
       </TouchableOpacity>
       <Text style={[styles.cartTableCell, styles.cartTotalCell]}>{formatDA(Number(item.price) * item.quantity)}</Text>
@@ -181,43 +234,18 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={true}>
-          {/* Section client (inchangée) */}
+          {/* Client */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Client</Text>
-            <View style={styles.clientRow}>
-              <TextInput
-                style={styles.clientInput}
-                placeholder="Nom du client"
-                value={client?.name || ''}
-                onChangeText={text => setClient({ id: null, name: text })}
-              />
-              <TouchableOpacity style={styles.selectClientBtn} onPress={async () => {
-                const clients = await getLocalClients();
-                if (!clients.length) return Alert.alert('Info', 'Aucun client');
-                Alert.alert('Sélection', clients.map(c => c.name).join('\n'), [
-                  { text: 'Annuler', style: 'cancel' },
-                  {
-                    text: 'Choisir',
-                    onPress: () => Alert.prompt('Nom exact', '', [
-                      { text: 'Annuler' },
-                      {
-                        text: 'OK',
-                        onPress: input => {
-                          const found = clients.find(c => c.name.toLowerCase() === input?.toLowerCase());
-                          if (found) setClient({ id: found.id, name: found.name });
-                          else Alert.alert('Erreur', 'Non trouvé');
-                        }
-                      }
-                    ])
-                  }
-                ]);
-              }}>
-                <Text style={styles.selectClientBtnText}>📋</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.clientSelector} onPress={() => setClientModalVisible(true)}>
+              <Text style={styles.clientSelectorText}>
+                {client ? client.name : 'Sélectionner un client'}
+              </Text>
+              <Text style={styles.chevron}>▼</Text>
+            </TouchableOpacity>
           </View>
 
-          {/* Section produits disponibles */}
+          {/* Produits disponibles (ScrollView) */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Produits disponibles</Text>
             <TextInput
@@ -228,7 +256,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             />
             <ScrollView style={styles.productScrollView} nestedScrollEnabled={true}>
               {filteredProducts.map(product => (
-                <TouchableOpacity key={product.id} style={styles.productItem} onPress={() => addToCart(product)}>
+                <TouchableOpacity key={product.id} style={styles.productItem} onPress={() => openProductModal(product)}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.productName}>{product.name}</Text>
                     <Text style={styles.productPrice}>{formatDA(Number(product.price))}</Text>
@@ -242,7 +270,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             </ScrollView>
           </View>
 
-          {/* Section panier */}
+          {/* Panier (ScrollView au lieu de FlatList pour éviter l'avertissement) */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Panier</Text>
             {cart.length === 0 ? (
@@ -255,18 +283,14 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
                   <Text style={[styles.cartHeaderCell, styles.cartPriceHeader]}>Prix U.</Text>
                   <Text style={[styles.cartHeaderCell, styles.cartTotalHeader]}>Total</Text>
                 </View>
-                <FlatList
-                  data={cart}
-                  keyExtractor={item => item.id.toString()}
-                  renderItem={renderCartItem}
-                  scrollEnabled={true}
-                  style={styles.cartList}
-                />
+                <ScrollView style={styles.cartScrollView} nestedScrollEnabled={true}>
+                  {cart.map(item => renderCartItem(item))}
+                </ScrollView>
               </>
             )}
           </View>
 
-          {/* Récapitulatif */}
+          {/* Totaux */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Récapitulatif</Text>
             <View style={styles.totalRow}><Text>Total HT</Text><Text>{formatDA(totalHT)}</Text></View>
@@ -284,37 +308,77 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Enregistrer</Text>}
           </TouchableOpacity>
         </View>
+      </View>
 
-        {/* Modal pour la modification du prix */}
-        <Modal
-          visible={priceModalVisible}
-          transparent={true}
-          animationType="fade"
-          onRequestClose={() => setPriceModalVisible(false)}
-        >
-          <View style={styles.priceModalOverlay}>
-            <View style={styles.priceModalContent}>
-              <Text style={styles.priceModalTitle}>Modifier le prix unitaire</Text>
+      {/* Modal client (inchangé) */}
+      <Modal visible={clientModalVisible} animationType="slide" transparent onRequestClose={() => setClientModalVisible(false)}>
+        <View style={styles.clientModalOverlay}>
+          <View style={styles.clientModalContent}>
+            <Text style={styles.clientModalTitle}>Choisir un client</Text>
+            <FlatList
+              data={clientsList}
+              keyExtractor={item => item.id.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.clientItem} onPress={() => selectClient(item)}>
+                  <Text style={styles.clientItemName}>{item.name}</Text>
+                  {item.phone ? <Text style={styles.clientItemPhone}>{item.phone}</Text> : null}
+                </TouchableOpacity>
+              )}
+              ListEmptyComponent={<Text style={styles.emptyText}>Aucun client existant</Text>}
+            />
+            <View style={styles.addClientSection}>
               <TextInput
-                style={styles.priceInput}
-                value={newPrice}
-                onChangeText={setNewPrice}
-                keyboardType="numeric"
-                placeholder="Prix en DA"
-                autoFocus={true}
+                style={styles.newClientInput}
+                placeholder="Nouveau client (nom)"
+                value={newClientName}
+                onChangeText={setNewClientName}
               />
-              <View style={styles.priceModalButtons}>
-                <TouchableOpacity onPress={() => setPriceModalVisible(false)} style={styles.priceModalCancel}>
-                  <Text style={styles.priceModalCancelText}>Annuler</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={confirmPriceChange} style={styles.priceModalConfirm}>
-                  <Text style={styles.priceModalConfirmText}>Modifier</Text>
-                </TouchableOpacity>
-              </View>
+              <TouchableOpacity style={styles.addClientBtn} onPress={addNewClient}>
+                <Text style={styles.addClientBtnText}>Ajouter</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={styles.closeClientModal} onPress={() => setClientModalVisible(false)}>
+              <Text style={styles.closeClientModalText}>Fermer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal produit */}
+      <Modal visible={productModalVisible} animationType="fade" transparent onRequestClose={() => setProductModalVisible(false)}>
+        <View style={styles.productModalOverlay}>
+          <View style={styles.productModalContent}>
+            <Text style={styles.productModalTitle}>Ajouter au panier</Text>
+            <Text style={styles.productNameModal}>{selectedProduct?.name}</Text>
+            <View style={styles.productModalField}>
+              <Text style={styles.productModalLabel}>Quantité :</Text>
+              <TextInput
+                style={styles.productModalInput}
+                keyboardType="numeric"
+                value={quantity}
+                onChangeText={setQuantity}
+              />
+            </View>
+            <View style={styles.productModalField}>
+              <Text style={styles.productModalLabel}>Prix unitaire (DA) :</Text>
+              <TextInput
+                style={styles.productModalInput}
+                keyboardType="numeric"
+                value={unitPrice}
+                onChangeText={setUnitPrice}
+              />
+            </View>
+            <View style={styles.productModalButtons}>
+              <TouchableOpacity style={styles.productModalCancel} onPress={() => setProductModalVisible(false)}>
+                <Text style={styles.productModalCancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.productModalConfirm} onPress={addOrUpdateCart}>
+                <Text style={styles.productModalConfirmText}>Ajouter</Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </Modal>
-      </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -327,10 +391,9 @@ const styles = StyleSheet.create({
   content: { flex: 1, padding: 16 },
   section: { marginBottom: 24 },
   sectionTitle: { fontSize: 16, fontWeight: '600', marginBottom: 12, color: COLORS.text },
-  clientRow: { flexDirection: 'row', gap: 8 },
-  clientInput: { flex: 1, borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 10, backgroundColor: '#fff' },
-  selectClientBtn: { backgroundColor: COLORS.primaryLight, paddingHorizontal: 12, justifyContent: 'center', borderRadius: 8 },
-  selectClientBtnText: { color: COLORS.primary, fontWeight: '500', fontSize: 16 },
+  clientSelector: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 12, backgroundColor: '#fff' },
+  clientSelectorText: { fontSize: 14, color: COLORS.text },
+  chevron: { fontSize: 14, color: COLORS.textSecondary },
   searchInput: { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 10, marginBottom: 12, backgroundColor: '#fff' },
   productScrollView: { maxHeight: 200, backgroundColor: '#fff', borderRadius: 8, borderWidth: 0.5, borderColor: '#E0E0E0' },
   productItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 0.5, borderBottomColor: '#E0E0E0' },
@@ -354,7 +417,7 @@ const styles = StyleSheet.create({
   priceTouchable: { flex: 2, alignItems: 'flex-end', paddingVertical: 6, paddingHorizontal: 4 },
   cartPriceCell: { textAlign: 'right', paddingRight: 8 },
   cartTotalCell: { flex: 2, textAlign: 'right', fontWeight: '500', color: COLORS.primary },
-  cartList: { maxHeight: 250 },
+  cartScrollView: { maxHeight: 250 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
   grandTotal: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#E0E0E0' },
   footer: { flexDirection: 'row', gap: 12, padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#E0E0E0' },
@@ -362,14 +425,28 @@ const styles = StyleSheet.create({
   cancelBtnText: { color: COLORS.textSecondary, fontWeight: '500' },
   saveBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: COLORS.primary },
   saveBtnText: { color: '#fff', fontWeight: '500' },
-  // Styles pour le modal de prix
-  priceModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  priceModalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 20, width: '80%', alignItems: 'center' },
-  priceModalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: COLORS.text },
-  priceInput: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, width: '100%', fontSize: 16, marginBottom: 20 },
-  priceModalButtons: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', gap: 12 },
-  priceModalCancel: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: '#eee', alignItems: 'center' },
-  priceModalCancelText: { color: COLORS.textSecondary, fontWeight: '500' },
-  priceModalConfirm: { flex: 1, paddingVertical: 10, borderRadius: 8, backgroundColor: COLORS.primary, alignItems: 'center' },
-  priceModalConfirmText: { color: '#fff', fontWeight: '500' },
+  clientModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  clientModalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%', maxHeight: '80%' },
+  clientModalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 16, color: COLORS.primary, textAlign: 'center' },
+  clientItem: { padding: 12, borderBottomWidth: 0.5, borderBottomColor: '#E0E0E0' },
+  clientItemName: { fontSize: 16, fontWeight: '500', color: COLORS.text },
+  clientItemPhone: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+  addClientSection: { flexDirection: 'row', marginTop: 16, gap: 8 },
+  newClientInput: { flex: 1, borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 10, fontSize: 14 },
+  addClientBtn: { backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 16, justifyContent: 'center' },
+  addClientBtnText: { color: '#fff', fontWeight: '500' },
+  closeClientModal: { marginTop: 16, alignItems: 'center', padding: 12 },
+  closeClientModalText: { color: COLORS.primary, fontWeight: '500' },
+  productModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  productModalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%' },
+  productModalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: COLORS.primary, textAlign: 'center' },
+  productNameModal: { fontSize: 16, fontWeight: '500', color: COLORS.text, textAlign: 'center', marginBottom: 20 },
+  productModalField: { marginBottom: 15 },
+  productModalLabel: { fontSize: 14, fontWeight: '500', marginBottom: 5, color: COLORS.text },
+  productModalInput: { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 10, fontSize: 14, textAlign: 'center' },
+  productModalButtons: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, gap: 10 },
+  productModalCancel: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: '#eee' },
+  productModalCancelText: { color: COLORS.textSecondary, fontWeight: '500' },
+  productModalConfirm: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: COLORS.primary },
+  productModalConfirmText: { color: '#fff', fontWeight: '500' },
 });
