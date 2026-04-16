@@ -1,23 +1,38 @@
+// src/screens/ReportsScreen.js
 import React, { useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert, ActivityIndicator, // ← ajout
+  TouchableOpacity, Alert, ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { File, Directory, Paths } from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { COLORS, formatDA } from '../services/theme';
 import {
   Card, KpiCard, SectionTitle, Divider, RowBetween, ProgressBar,
 } from '../components/UIComponents';
-import { getLocalSales, getLocalProducts } from '../database/localStorage'; // adapte selon ta config
+import { getLocalSales, getLocalProducts, getLocalClients } from '../database/database';
 
 export default function ReportsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [year] = useState(2026);
-  const [salesData, setSalesData] = useState({ monthly: [], topProducts: [], topClients: [] });
+  const [salesData, setSalesData] = useState({
+    monthly: [],
+    topProducts: [],
+    topClients: [],
+    totalCA: 0,
+    netProfit: 0,
+    grossMargin: 0,
+    salesCount: 0,
+    paidCount: 0,
+    recoveryRate: 0,
+    stockValue: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   const loadReportsData = useCallback(async () => {
     try {
+      setLoading(true);
       const sales = await getLocalSales();
       const products = await getLocalProducts();
 
@@ -29,22 +44,18 @@ export default function ReportsScreen() {
           monthlyMap[month] = (monthlyMap[month] || 0) + (sale.total || 0);
         }
       });
-      const monthly = Object.entries(monthlyMap).slice(-4).map(([month, ca]) => ({
+      let monthly = Object.entries(monthlyMap).slice(-4).map(([month, ca]) => ({
         month: month.substring(5, 7) + '/' + month.substring(2, 4),
         ca: ca,
       })).reverse();
-      const defaultMonthly = [
-        { month: 'Jan', ca: 0 }, { month: 'Fév', ca: 0 }, { month: 'Mar', ca: 0 }, { month: 'Avr', ca: 0 }
-      ];
-      const finalMonthly = monthly.length ? monthly : defaultMonthly;
+      if (monthly.length === 0) monthly = [{ month: 'Jan', ca: 0 }, { month: 'Fév', ca: 0 }, { month: 'Mar', ca: 0 }, { month: 'Avr', ca: 0 }];
 
       // Top produits
       const productSales = {};
       for (const sale of sales) {
-        if (sale.items) {
+        if (sale.items && sale.items.length) {
           for (const item of sale.items) {
-            const name = item.name;
-            productSales[name] = (productSales[name] || 0) + (item.total || 0);
+            productSales[item.name] = (productSales[item.name] || 0) + (item.total || 0);
           }
         }
       }
@@ -52,17 +63,12 @@ export default function ReportsScreen() {
         .map(([name, revenue]) => ({ name, revenue }))
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 5)
-        .map((p, idx, arr) => ({
-          ...p,
-          pct: arr[0]?.revenue ? Math.round((p.revenue / arr[0].revenue) * 100) : 0
-        }));
+        .map((p, idx, arr) => ({ ...p, pct: arr[0]?.revenue ? Math.round((p.revenue / arr[0].revenue) * 100) : 0 }));
 
       // Top clients
       const clientSales = {};
       sales.forEach(sale => {
-        if (sale.client_name) {
-          clientSales[sale.client_name] = (clientSales[sale.client_name] || 0) + (sale.total || 0);
-        }
+        if (sale.client_name) clientSales[sale.client_name] = (clientSales[sale.client_name] || 0) + (sale.total || 0);
       });
       const topClients = Object.entries(clientSales)
         .map(([name, salesAmount]) => ({ name, sales: salesAmount, count: 1 }))
@@ -78,7 +84,7 @@ export default function ReportsScreen() {
       const stockValue = products.reduce((sum, p) => sum + (p.price * (p.stock_quantity || 0)), 0);
 
       setSalesData({
-        monthly: finalMonthly,
+        monthly,
         topProducts,
         topClients,
         totalCA,
@@ -91,18 +97,7 @@ export default function ReportsScreen() {
       });
     } catch (error) {
       console.error(error);
-      setSalesData({
-        monthly: [{ month: 'Jan', ca: 0 }, { month: 'Fév', ca: 0 }, { month: 'Mar', ca: 0 }, { month: 'Avr', ca: 0 }],
-        topProducts: [],
-        topClients: [],
-        totalCA: 0,
-        netProfit: 0,
-        grossMargin: 0,
-        salesCount: 0,
-        paidCount: 0,
-        recoveryRate: 0,
-        stockValue: 0,
-      });
+      Alert.alert('Erreur', 'Impossible de charger les données');
     } finally {
       setLoading(false);
     }
@@ -116,8 +111,76 @@ export default function ReportsScreen() {
     setRefreshing(false);
   };
 
-  const handleExport = (type) => {
-    Alert.alert(`Export ${type}`, `Le rapport "${type}" sera généré et partagé.\n\n(Nécessite le backend Python connecté)`, [{ text: 'OK' }]);
+  // Fonction pour créer un fichier CSV temporaire et le partager
+  const shareCSV = async (fileName, content) => {
+    try {
+      // Créer un répertoire temporaire
+      const tempDir = new Directory(Paths.cache, 'reports');
+      if (!tempDir.exists) tempDir.create({ intermediates: true });
+      const file = new File(tempDir, `${fileName}.csv`);
+      file.write(content); // écriture synchrone
+
+      // Partager le fichier (l'utilisateur pourra choisir l'emplacement)
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(file.uri);
+      } else {
+        Alert.alert('Info', 'Le partage n\'est pas disponible sur cet appareil');
+      }
+      // Optionnel : supprimer le fichier temporaire après partage
+      // file.delete();
+    } catch (error) {
+      Alert.alert('Erreur', `Échec de l'export : ${error.message}`);
+    }
+  };
+
+  // Exports
+  const exportSalesCSV = async () => {
+    const sales = await getLocalSales();
+    if (!sales.length) { Alert.alert('Info', 'Aucune vente'); return; }
+    const headers = ['Facture', 'Client', 'Date', 'Total (DA)', 'Statut'];
+    const rows = sales.map(s => [s.invoice, s.client_name, s.date, s.total, s.status]);
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+    await shareCSV('ventes', csvContent);
+  };
+
+  const exportStockCSV = async () => {
+    const products = await getLocalProducts();
+    if (!products.length) { Alert.alert('Info', 'Aucun produit'); return; }
+    const headers = ['Nom', 'Code-barres', 'Catégorie', 'Prix (DA)', 'Quantité', 'Stock minimum', 'Description'];
+    const rows = products.map(p => [p.name, p.barcode || '', p.category || '', p.price, p.stock_quantity, p.min_stock, p.description || '']);
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+    await shareCSV('stock', csvContent);
+  };
+
+  const exportClientsCSV = async () => {
+    const clients = await getLocalClients();
+    if (!clients.length) { Alert.alert('Info', 'Aucun client'); return; }
+    const headers = ['Nom', 'Téléphone', 'Email', 'Adresse', 'Date d\'ajout'];
+    const rows = clients.map(c => [c.name, c.phone || '', c.email || '', c.address || '', c.created_at ? new Date(c.created_at).toLocaleDateString() : '']);
+    const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+    await shareCSV('clients', csvContent);
+  };
+
+  const exportBilanCSV = async () => {
+    const sales = await getLocalSales();
+    const lines = [
+      `"Rapport généré le",${new Date().toLocaleString()}`,
+      `"CA total",${formatDA(salesData.totalCA)}`,
+      `"Ventes totales",${salesData.salesCount}`,
+      `"Factures payées",${salesData.paidCount}`,
+      `"Taux recouvrement",${salesData.recoveryRate}%`,
+      `"Valeur du stock",${formatDA(salesData.stockValue)}`,
+      ``,
+      `"Top clients"`,
+      `"Client","Montant"`,
+      ...salesData.topClients.map(c => `"${c.name}",${formatDA(c.sales)}`),
+      ``,
+      `"Dernières ventes"`,
+      `"Facture","Client","Total"`,
+      ...sales.slice(0, 10).map(s => `"${s.invoice}","${s.client_name}",${formatDA(s.total)}`),
+    ];
+    const csvContent = lines.join('\n');
+    await shareCSV('bilan', csvContent);
   };
 
   if (loading) {
@@ -150,7 +213,7 @@ export default function ReportsScreen() {
       <SectionTitle>Évolution des ventes</SectionTitle>
       <Card>
         {salesData.monthly.map((m, i) => (
-          <View key={m.month}>
+          <View key={`month-${i}`}>
             <RowBetween style={{ marginBottom: 4 }}>
               <Text style={styles.monthLabel}>{m.month} {year}</Text>
               <Text style={[styles.monthValue, { color: COLORS.primary }]}>{formatDA(m.ca)}</Text>
@@ -166,7 +229,7 @@ export default function ReportsScreen() {
       <Card>
         {salesData.topProducts.length > 0 ? (
           salesData.topProducts.map((p, i) => (
-            <View key={i}>
+            <View key={`prod-${i}`}>
               <RowBetween style={{ marginBottom: 4 }}>
                 <Text style={styles.prodName} numberOfLines={1}>{p.name}</Text>
                 <Text style={[styles.prodRevenue, { color: COLORS.primary }]}>{formatDA(p.revenue)}</Text>
@@ -184,7 +247,7 @@ export default function ReportsScreen() {
       <Card style={{ paddingVertical: 4 }}>
         {salesData.topClients.length > 0 ? (
           salesData.topClients.map((c, i) => (
-            <View key={i}>
+            <View key={`client-${i}`}>
               <View style={styles.clientRow}>
                 <Text style={styles.medal}>{c.medal}</Text>
                 <View style={{ flex: 1 }}>
@@ -204,21 +267,18 @@ export default function ReportsScreen() {
       <SectionTitle>Exporter les rapports</SectionTitle>
       <Card>
         <View style={styles.exportGrid}>
-          {[
-            { label: '📄 PDF Ventes', type: 'PDF Ventes', color: COLORS.primary, bg: '#E3F2FD' },
-            { label: '📊 CSV Stock', type: 'CSV Stock', color: COLORS.success, bg: '#E8F5E9' },
-            { label: '👥 RH Mensuel', type: 'RH Mensuel', color: '#9C27B0', bg: '#F3E5F5' },
-            { label: '📈 Bilan Excel', type: 'Bilan Excel', color: COLORS.warning, bg: '#FFFDE7' },
-          ].map(btn => (
-            <TouchableOpacity
-              key={btn.type}
-              style={[styles.exportBtn, { backgroundColor: btn.bg, borderColor: btn.color }]}
-              onPress={() => handleExport(btn.type)}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.exportBtnText, { color: btn.color }]}>{btn.label}</Text>
-            </TouchableOpacity>
-          ))}
+          <TouchableOpacity style={[styles.exportBtn, { backgroundColor: '#E3F2FD', borderColor: COLORS.primary }]} onPress={exportSalesCSV}>
+            <Text style={[styles.exportBtnText, { color: COLORS.primary }]}>📄 CSV Ventes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.exportBtn, { backgroundColor: '#E8F5E9', borderColor: COLORS.success }]} onPress={exportStockCSV}>
+            <Text style={[styles.exportBtnText, { color: COLORS.success }]}>📊 CSV Stock</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.exportBtn, { backgroundColor: '#F3E5F5', borderColor: '#9C27B0' }]} onPress={exportClientsCSV}>
+            <Text style={[styles.exportBtnText, { color: '#9C27B0' }]}>👥 Clients</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.exportBtn, { backgroundColor: '#FFFDE7', borderColor: COLORS.warning }]} onPress={exportBilanCSV}>
+            <Text style={[styles.exportBtnText, { color: COLORS.warning }]}>📈 Bilan Excel</Text>
+          </TouchableOpacity>
         </View>
       </Card>
 

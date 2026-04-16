@@ -7,7 +7,6 @@ import {
 import { useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as Clipboard from 'expo-clipboard';
 import Papa from 'papaparse';
 import { COLORS, formatDA } from '../services/theme';
 import {
@@ -32,9 +31,15 @@ export default function StockScreen() {
   const [tab, setTab] = useState('all');
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [csvText, setCsvText] = useState('');
-  const [importing, setImporting] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);     // modal ajout produit
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    barcode: '',
+    category: '',
+    price: '',
+    stock_quantity: '',
+    min_stock: '',
+  });
 
   const loadProducts = useCallback(async () => {
     try {
@@ -95,18 +100,44 @@ export default function StockScreen() {
     return 'ok';
   };
 
-  const mergeProducts = (existing, newItems) => {
-    const existingMap = new Map();
-    existing.forEach(p => existingMap.set(p.barcode || p.name, p));
-    for (const item of newItems) {
-      const key = item.barcode || item.name;
-      if (!existingMap.has(key)) {
-        existingMap.set(key, { ...item, id: Date.now() + Math.random() });
-      }
+  // Ajout manuel d'un produit
+  const addProduct = async () => {
+    // Validation
+    if (!newProduct.name.trim()) {
+      Alert.alert('Erreur', 'Le nom du produit est obligatoire');
+      return;
     }
-    return Array.from(existingMap.values());
+    const price = parseFloat(newProduct.price);
+    if (isNaN(price) || price <= 0) {
+      Alert.alert('Erreur', 'Le prix doit être un nombre positif');
+      return;
+    }
+    const stockQty = parseInt(newProduct.stock_quantity) || 0;
+    const minStock = parseInt(newProduct.min_stock) || 0;
+
+    const product = {
+      id: Date.now() + Math.random(),
+      name: newProduct.name.trim(),
+      barcode: newProduct.barcode.trim() || '',
+      category: newProduct.category.trim() || 'Non catégorisé',
+      price: price,
+      stock_quantity: stockQty,
+      min_stock: minStock,
+    };
+
+    const updatedProducts = [...products, product];
+    try {
+      await saveProductsLocally(updatedProducts);
+      await loadProducts();
+      setModalVisible(false);
+      setNewProduct({ name: '', barcode: '', category: '', price: '', stock_quantity: '', min_stock: '' });
+      Alert.alert('Succès', 'Produit ajouté avec succès');
+    } catch (error) {
+      Alert.alert('Erreur', error.message);
+    }
   };
 
+  // Import depuis fichier CSV (inchangé)
   const importFromFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -115,7 +146,6 @@ export default function StockScreen() {
       });
       if (result.assets && result.assets[0]) {
         const uri = result.assets[0].uri;
-        setImporting(true);
         const csvString = await FileSystem.readAsStringAsync(uri);
         const parsed = Papa.parse(csvString, { header: true, skipEmptyLines: true });
         const newProducts = parsed.data.map((row, idx) => ({
@@ -127,69 +157,19 @@ export default function StockScreen() {
           stock_quantity: parseInt(row.stock_quantity || row.quantity || row.qty || 0, 10),
           min_stock: parseInt(row.min_stock || row.minStock || row.minimum || 0, 10),
         })).filter(p => p.name && !isNaN(p.price));
-        
         if (newProducts.length === 0) {
           Alert.alert('Erreur', 'Aucun produit valide trouvé dans le CSV');
           return;
         }
-        const updatedProducts = mergeProducts(products, newProducts);
+        // Fusion simple : on ajoute les nouveaux produits sans vérifier doublon (mais on garde l'existant)
+        const updatedProducts = [...products, ...newProducts];
         await saveProductsLocally(updatedProducts);
         await loadProducts();
         Alert.alert('Succès', `${newProducts.length} produits importés depuis le fichier`);
       }
     } catch (error) {
       Alert.alert('Erreur', 'Impossible de lire le fichier CSV');
-    } finally {
-      setImporting(false);
     }
-  };
-
-  const importFromClipboard = async () => {
-    try {
-      const text = await Clipboard.getStringAsync();
-      if (!text || !text.includes(',')) {
-        Alert.alert('Erreur', 'Le presse-papiers ne contient pas de données CSV valides');
-        return;
-      }
-      setCsvText(text);
-      setModalVisible(true);
-    } catch (error) {
-      Alert.alert('Erreur', 'Impossible d\'accéder au presse-papiers');
-    }
-  };
-
-  const processCsvText = () => {
-    if (!csvText.trim()) return;
-    setImporting(true);
-    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-    const newProducts = parsed.data.map((row, idx) => ({
-      id: Date.now() + idx,
-      name: row.name || row.Name || row.nom || '',
-      barcode: row.barcode || row.code || row.Barcode || '',
-      category: row.category || row.Category || row.catégorie || '',
-      price: parseFloat(row.price || row.Price || row.prix || 0),
-      stock_quantity: parseInt(row.stock_quantity || row.quantity || row.qty || 0, 10),
-      min_stock: parseInt(row.min_stock || row.minStock || row.minimum || 0, 10),
-    })).filter(p => p.name && !isNaN(p.price));
-    
-    if (newProducts.length === 0) {
-      Alert.alert('Erreur', 'Aucun produit valide trouvé dans le texte');
-      setModalVisible(false);
-      setImporting(false);
-      return;
-    }
-    const updatedProducts = mergeProducts(products, newProducts);
-    saveProductsLocally(updatedProducts)
-      .then(() => {
-        Alert.alert('Succès', `${newProducts.length} produits importés depuis le presse-papiers`);
-        setModalVisible(false);
-        setCsvText('');
-        loadProducts();
-      })
-      .catch(() => {
-        Alert.alert('Erreur', 'Échec de l\'enregistrement');
-      })
-      .finally(() => setImporting(false));
   };
 
   const filtered = products.filter(p =>
@@ -216,6 +196,7 @@ export default function StockScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}
       >
+        {/* KPIs */}
         <View style={styles.kpiRow}>
           <KpiCard value={totalProducts} label="Total produits" color={COLORS.primary} style={{ marginRight: 6 }} />
           <KpiCard value={lowStockCount} label="Stock critique" color={COLORS.danger} style={{ marginLeft: 6 }} />
@@ -230,18 +211,20 @@ export default function StockScreen() {
           </TouchableOpacity>
         )}
 
+        {/* Barre de recherche + boutons import / ajout */}
         <View style={styles.searchRow}>
           <View style={{ flex: 1 }}>
             <SearchBar value={search} onChangeText={setSearch} placeholder="Chercher un produit..." />
           </View>
-          <TouchableOpacity style={styles.importButton} onPress={importFromFile} disabled={importing}>
+          <TouchableOpacity style={styles.importButton} onPress={importFromFile}>
             <Text style={styles.importButtonText}>📁 Fichier</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.importButton} onPress={importFromClipboard} disabled={importing}>
-            <Text style={styles.importButtonText}>📋 Presse-papiers</Text>
+          <TouchableOpacity style={styles.importButton} onPress={() => setModalVisible(true)}>
+            <Text style={styles.importButtonText}>➕ Ajouter</Text>
           </TouchableOpacity>
         </View>
 
+        {/* Tabs */}
         <View style={styles.tabRow}>
           <TouchableOpacity style={[styles.tab, tab === 'all' && styles.tabActive]} onPress={() => setTab('all')}>
             <Text style={[styles.tabText, tab === 'all' && styles.tabTextActive]}>Tous</Text>
@@ -251,6 +234,7 @@ export default function StockScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Liste des produits */}
         <SectionTitle>{tab === 'low' ? 'Produits en stock faible' : 'Inventaire complet'}</SectionTitle>
         <Card style={{ paddingVertical: 4 }}>
           {filtered.map((p, i) => {
@@ -286,28 +270,63 @@ export default function StockScreen() {
         </Card>
       </ScrollView>
 
-      <Modal visible={modalVisible} animationType="slide" transparent onRequestClose={() => setModalVisible(false)}>
+      {/* Modal d'ajout de produit */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Coller le texte CSV</Text>
+            <Text style={styles.modalTitle}>➕ Ajouter un produit</Text>
             <TextInput
-              style={styles.textArea}
-              multiline
-              numberOfLines={8}
-              placeholder="Collez ici les données CSV (avec en-têtes: name, price, stock_quantity, min_stock, category, barcode...)"
-              value={csvText}
-              onChangeText={setCsvText}
-              editable={!importing}
+              style={styles.input}
+              placeholder="Nom du produit *"
+              value={newProduct.name}
+              onChangeText={text => setNewProduct({ ...newProduct, name: text })}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Prix (DA) *"
+              value={newProduct.price}
+              onChangeText={text => setNewProduct({ ...newProduct, price: text })}
+              keyboardType="numeric"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Quantité en stock"
+              value={newProduct.stock_quantity}
+              onChangeText={text => setNewProduct({ ...newProduct, stock_quantity: text })}
+              keyboardType="numeric"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Stock minimum"
+              value={newProduct.min_stock}
+              onChangeText={text => setNewProduct({ ...newProduct, min_stock: text })}
+              keyboardType="numeric"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Catégorie (optionnel)"
+              value={newProduct.category}
+              onChangeText={text => setNewProduct({ ...newProduct, category: text })}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Code-barres (optionnel)"
+              value={newProduct.barcode}
+              onChangeText={text => setNewProduct({ ...newProduct, barcode: text })}
             />
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setModalVisible(false)} disabled={importing}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setModalVisible(false)}>
                 <Text style={styles.modalCancelText}>Annuler</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalConfirm} onPress={processCsvText} disabled={importing}>
-                <Text style={styles.modalConfirmText}>Importer</Text>
+              <TouchableOpacity style={styles.modalConfirm} onPress={addProduct}>
+                <Text style={styles.modalConfirmText}>Ajouter</Text>
               </TouchableOpacity>
             </View>
-            {importing && <ActivityIndicator style={{ marginTop: 12 }} color={COLORS.primary} />}
           </View>
         </View>
       </Modal>
@@ -339,10 +358,10 @@ const styles = StyleSheet.create({
   qtyLabel: { fontSize: 10, color: COLORS.textSecondary },
   emptyText: { textAlign: 'center', color: COLORS.textSecondary, padding: 20, fontSize: 14 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%', maxHeight: '70%' },
+  modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%', maxHeight: '80%' },
   modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: COLORS.primary },
-  textArea: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, textAlignVertical: 'top', fontSize: 12, fontFamily: 'monospace', marginBottom: 16 },
-  modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
+  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 14 },
+  modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
   modalCancel: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6, backgroundColor: '#eee' },
   modalCancelText: { color: COLORS.textSecondary, fontWeight: '500' },
   modalConfirm: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6, backgroundColor: COLORS.primary },
