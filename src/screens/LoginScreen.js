@@ -1,5 +1,4 @@
 // src/screens/LoginScreen.js
-
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
@@ -8,6 +7,7 @@ import {
 } from 'react-native';
 import { COLORS } from '../services/theme';
 import { authAPI } from '../services/api';
+import { getUserByUsername, setCurrentUser } from '../database/database';
 
 export default function LoginScreen({ navigation }) {
   const [username, setUsername] = useState('');
@@ -21,16 +21,31 @@ export default function LoginScreen({ navigation }) {
       return;
     }
     setLoading(true);
+    let loggedIn = false;
     try {
-      await authAPI.login(username.trim(), password);
-      navigation.replace('Main');
-    } catch (err) {
-      // Si pas de serveur, connexion offline pour démo
-      if (username === 'admin' && password === 'admin123') {
+      // Tentative de connexion au serveur (silencieuse)
+      try {
+        await authAPI.login(username.trim(), password);
+        loggedIn = true;
+      } catch (serverError) {
+        // Ignorer l'erreur serveur (mode offline)
+        console.log('Serveur indisponible, passage en mode hors ligne');
+      }
+      if (!loggedIn) {
+        // Mode hors ligne : vérification locale
+        const user = await getUserByUsername(username.trim());
+        if (user && user.password === password) {
+          await setCurrentUser({ id: user.id, username: user.username, role: user.role, fullname: user.fullname });
+          loggedIn = true;
+        }
+      }
+      if (loggedIn) {
         navigation.replace('Main');
       } else {
-        Alert.alert('Connexion échouée', 'Identifiant ou mot de passe incorrect.');
+        Alert.alert('Connexion échouée', 'Identifiant ou mot de passe incorrect.\n\nMode hors ligne : admin / admin123');
       }
+    } catch (err) {
+      Alert.alert('Erreur', 'Problème de connexion');
     } finally {
       setLoading(false);
     }
@@ -42,7 +57,6 @@ export default function LoginScreen({ navigation }) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {/* Logo / Header */}
         <View style={styles.header}>
           <View style={styles.logoCircle}>
             <Text style={styles.logoText}>ERP</Text>
@@ -51,7 +65,6 @@ export default function LoginScreen({ navigation }) {
           <Text style={styles.appSubtitle}>Système de Gestion ERP</Text>
         </View>
 
-        {/* Form */}
         <View style={styles.form}>
           <Text style={styles.formTitle}>Connexion</Text>
 
@@ -104,7 +117,7 @@ export default function LoginScreen({ navigation }) {
           </TouchableOpacity>
 
           <View style={styles.hint}>
-            <Text style={styles.hintText}>Première connexion : admin / admin123</Text>
+            <Text style={styles.hintText}>Compte admin par défaut : admin / admin123</Text>
           </View>
         </View>
 

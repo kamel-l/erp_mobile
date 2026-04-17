@@ -1,12 +1,12 @@
 // src/screens/ProfileScreen.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
   Switch, Alert, TextInput,
 } from 'react-native';
 import { COLORS } from '../services/theme';
 import { Card, Divider, RowBetween, Avatar } from '../components/UIComponents';
-import { clearAllData } from '../database/database';
+import { clearAllData, getCurrentUser } from '../database/database';
 
 export default function ProfileScreen({ navigation, onLogout }) {
   const [serverIP, setServerIP] = useState('192.168.1.100');
@@ -14,8 +14,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [offlineMode, setOfflineMode] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
-
-  const user = { username: 'admin', role: 'Administrateur', initials: 'AD' };
+  const [currentUser, setCurrentUser] = useState(null);
 
   const testConnection = async () => {
     Alert.alert('Test de connexion', `Tentative sur http://${serverIP}:5000/api/health...`, [{ text: 'OK' }]);
@@ -38,7 +37,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
           text: 'Oui, tout supprimer',
           style: 'destructive',
           onPress: async () => {
-            await clearAllData(); // Vide SQLite
+            await clearAllData();
             navigation.reset({
               index: 0,
               routes: [{ name: 'StockImport' }],
@@ -50,8 +49,17 @@ export default function ProfileScreen({ navigation, onLogout }) {
     );
   };
 
+  useEffect(() => {
+    const loadUser = async () => {
+      const user = await getCurrentUser();
+      setCurrentUser(user);
+    };
+    loadUser();
+  }, []);
+
   const MENU_ITEMS = [
     { icon: '🔔', label: 'Notifications', onPress: () => navigation.navigate('Notifications') },
+    ...(currentUser?.role === 'admin' ? [{ icon: '👥', label: 'Gestion des utilisateurs', onPress: () => navigation.navigate('UserManagement') }] : []),
     { icon: '📊', label: 'Exporter les données', onPress: () => Alert.alert('Export', 'Génère un fichier Excel complet.') },
     { icon: '🔄', label: 'Synchroniser', onPress: () => Alert.alert('Sync', 'Données synchronisées avec le serveur.') },
     { icon: '❓', label: 'Aide & Support', onPress: () => Alert.alert('Aide', 'Documentation : github.com/votre-erp') },
@@ -64,12 +72,12 @@ export default function ProfileScreen({ navigation, onLogout }) {
       {/* User Card */}
       <Card style={styles.userCard}>
         <View style={styles.userInfo}>
-          <Avatar initials={user.initials} bg="#E3F2FD" textColor="#0D47A1" size={56} />
+          <Avatar initials={currentUser?.fullname?.charAt(0) || 'AD'} bg="#E3F2FD" textColor="#0D47A1" size={56} />
           <View style={{ marginLeft: 14 }}>
-            <Text style={styles.userName}>{user.username}</Text>
-            <Text style={styles.userRole}>{user.role}</Text>
+            <Text style={styles.userName}>{currentUser?.fullname || currentUser?.username || 'Administrateur'}</Text>
+            <Text style={styles.userRole}>{currentUser?.role === 'admin' ? 'Administrateur' : 'Utilisateur'}</Text>
             <View style={styles.roleBadge}>
-              <Text style={styles.roleBadgeTxt}>👑 Administrateur</Text>
+              <Text style={styles.roleBadgeTxt}>{currentUser?.role === 'admin' ? '👑 Administrateur' : '👤 Utilisateur'}</Text>
             </View>
           </View>
         </View>

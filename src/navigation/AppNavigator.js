@@ -18,6 +18,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import StockImportScreen from '../screens/StockImportScreen_Enhanced';
 import { getLocalProducts, getLocalSales } from '../database/database';
+import UserManagementScreen from '../screens/UserManagementScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -137,6 +138,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="StockImport" component={StockImportScreen} options={{ title: 'Import/Export Stock' }} />
+        <Stack.Screen name="UserManagement" component={UserManagementScreen} options={{ headerShown: true, title: 'Gestion utilisateurs', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff' }} />
         <Stack.Screen name="Notifications" component={NotificationsScreen}
           options={{ headerShown: true, title: 'Notifications', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '500' } }} />
       </Stack.Navigator>

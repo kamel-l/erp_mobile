@@ -11,7 +11,7 @@ import {
   RowBetween, ProgressBar, SearchBar,
 } from '../components/UIComponents';
 import NewSaleModal from './modals/NewSaleModal';
-import { getLocalSales } from '../database/database';
+import { getLocalSales, saveSaleLocally, updateSaleStatus } from '../database/database';
 
 const AVATAR_COLORS = [
   { bg: '#E3F2FD', text: '#0D47A1' },
@@ -77,6 +77,26 @@ export default function SalesScreen({ navigation }) {
   const showInvoice = (sale) => {
     setCurrentInvoice(sale);
     setInvoiceModalVisible(true);
+  };
+
+  // Fonction pour changer le statut de la vente
+  const changeSaleStatus = async (sale, newStatus) => {
+    try {
+      await updateSaleStatus(sale.id, newStatus);
+      // Mettre à jour la liste locale
+      setSales(prev => prev.map(s =>
+        s.id === sale.id ? { ...s, status: newStatus } : s
+      ));
+      if (selectedSale && selectedSale.id === sale.id) {
+        setSelectedSale({ ...selectedSale, status: newStatus });
+      }
+      if (currentInvoice && currentInvoice.id === sale.id) {
+        setCurrentInvoice({ ...currentInvoice, status: newStatus });
+      }
+      Alert.alert('Succès', `Statut modifié en ${newStatus === 'paid' ? 'Payée' : newStatus === 'cancelled' ? 'Annulée' : 'En attente'}`);
+    } catch (error) {
+      Alert.alert('Erreur', 'Impossible de modifier le statut');
+    }
   };
 
   const renderProductItem = ({ item }) => (
@@ -151,7 +171,7 @@ export default function SalesScreen({ navigation }) {
         </TouchableOpacity>
       </ScrollView>
 
-      {/* Modal de détail de la vente (ancienne) */}
+      {/* Modal de détail de la vente avec changement de statut */}
       <Modal visible={!!selectedSale} animationType="slide" transparent onRequestClose={() => setSelectedSale(null)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -175,9 +195,38 @@ export default function SalesScreen({ navigation }) {
                   </View>
                 ))}
                 <View style={[styles.modalRow, { marginBottom: 16 }]}>
-                  <Text style={styles.modalLabel}>Statut</Text>
+                  <Text style={styles.modalLabel}>Statut actuel</Text>
                   <Badge status={selectedSale.status || 'pending'} />
                 </View>
+
+                {/* Boutons de changement de statut */}
+                <View style={styles.statusButtons}>
+                  {selectedSale.status !== 'paid' && (
+                    <TouchableOpacity
+                      style={[styles.statusBtn, styles.paidBtn]}
+                      onPress={() => changeSaleStatus(selectedSale, 'paid')}
+                    >
+                      <Text style={styles.statusBtnText}>✓ Marquer comme payée</Text>
+                    </TouchableOpacity>
+                  )}
+                  {selectedSale.status !== 'cancelled' && (
+                    <TouchableOpacity
+                      style={[styles.statusBtn, styles.cancelBtn]}
+                      onPress={() => changeSaleStatus(selectedSale, 'cancelled')}
+                    >
+                      <Text style={styles.statusBtnText}>✗ Annuler la facture</Text>
+                    </TouchableOpacity>
+                  )}
+                  {selectedSale.status !== 'pending' && (
+                    <TouchableOpacity
+                      style={[styles.statusBtn, styles.pendingBtn]}
+                      onPress={() => changeSaleStatus(selectedSale, 'pending')}
+                    >
+                      <Text style={styles.statusBtnText}>↺ Remettre en attente</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
                 <TouchableOpacity style={styles.pdfBtn} onPress={() => showInvoice(selectedSale)}>
                   <Text style={styles.pdfBtnText}>📄 Voir la facture détaillée</Text>
                 </TouchableOpacity>
@@ -187,7 +236,7 @@ export default function SalesScreen({ navigation }) {
         </View>
       </Modal>
 
-      {/* Modal de la facture détaillée avec tableau des produits */}
+      {/* Modal de la facture détaillée (inchangé) */}
       <Modal visible={invoiceModalVisible} animationType="slide" transparent={false} onRequestClose={() => setInvoiceModalVisible(false)}>
         <View style={styles.invoiceContainer}>
           <View style={styles.invoiceHeader}>
@@ -203,9 +252,11 @@ export default function SalesScreen({ navigation }) {
                 <Text style={styles.invoiceNumber}>{currentInvoice.invoice}</Text>
                 <Text style={styles.invoiceClient}>Client : {currentInvoice.client_name}</Text>
                 <Text style={styles.invoiceDate}>Date : {currentInvoice.date || new Date(currentInvoice.sale_date).toLocaleDateString()}</Text>
+                <Text style={styles.invoiceStatus}>
+                  Statut : <Badge status={currentInvoice.status || 'pending'} />
+                </Text>
               </View>
 
-              {/* En-tête du tableau */}
               <View style={styles.productTableHeader}>
                 <Text style={[styles.productTableHeaderText, styles.productNameCol]}>Produit</Text>
                 <Text style={[styles.productTableHeaderText, styles.productQtyCol]}>Qté</Text>
@@ -213,7 +264,6 @@ export default function SalesScreen({ navigation }) {
                 <Text style={[styles.productTableHeaderText, styles.productTotalCol]}>Total</Text>
               </View>
 
-              {/* Liste des produits scrollable */}
               <FlatList
                 data={currentInvoice.items || []}
                 keyExtractor={(item, index) => index.toString()}
@@ -222,7 +272,6 @@ export default function SalesScreen({ navigation }) {
                 style={styles.productList}
               />
 
-              {/* Totaux */}
               <View style={styles.invoiceTotals}>
                 <RowBetween><Text>Total HT</Text><Text>{formatDA(Math.round((currentInvoice.total || 0) / 1.19))}</Text></RowBetween>
                 <RowBetween><Text>TVA (19%)</Text><Text>{formatDA((currentInvoice.total || 0) - Math.round((currentInvoice.total || 0) / 1.19))}</Text></RowBetween>
@@ -255,6 +304,7 @@ export default function SalesScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  // ... styles existants
   content: { padding: 14, paddingBottom: 24 },
   saleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
   saleInfo: { flex: 1, minWidth: 0 },
@@ -273,6 +323,12 @@ const styles = StyleSheet.create({
   modalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 0.5, borderColor: '#F0F0F0' },
   modalLabel: { fontSize: 13, color: COLORS.textSecondary },
   modalValue: { fontSize: 14, fontWeight: '500', color: COLORS.text },
+  statusButtons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginVertical: 16 },
+  statusBtn: { flex: 1, minWidth: '30%', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
+  paidBtn: { backgroundColor: COLORS.success },
+  cancelBtn: { backgroundColor: COLORS.danger },
+  pendingBtn: { backgroundColor: COLORS.warning },
+  statusBtnText: { color: '#fff', fontWeight: '600', fontSize: 12 },
   pdfBtn: { backgroundColor: COLORS.primary, borderRadius: 10, height: 46, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   pdfBtnText: { color: '#fff', fontSize: 15, fontWeight: '500' },
   invoiceContainer: { flex: 1, backgroundColor: '#F5F5F5' },
@@ -285,6 +341,7 @@ const styles = StyleSheet.create({
   invoiceNumber: { fontSize: 20, fontWeight: 'bold', color: COLORS.text, marginBottom: 8 },
   invoiceClient: { fontSize: 16, color: COLORS.text, marginBottom: 4 },
   invoiceDate: { fontSize: 14, color: COLORS.textSecondary },
+  invoiceStatus: { fontSize: 14, color: COLORS.textSecondary, marginTop: 8 },
   productTableHeader: { flexDirection: 'row', backgroundColor: '#E0E0E0', padding: 10, borderRadius: 8, marginBottom: 8 },
   productTableHeaderText: { fontWeight: 'bold', color: COLORS.text, fontSize: 12 },
   productNameCol: { flex: 3 },

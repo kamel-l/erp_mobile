@@ -26,18 +26,21 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [quantity, setQuantity] = useState('1');
   const [unitPrice, setUnitPrice] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [isCredit, setIsCredit] = useState(false);
+  const [includeTVA, setIncludeTVA] = useState(true);
 
   useEffect(() => {
     if (visible) {
       loadProducts();
       loadClients();
-      if (initialClient) {
-        setClient(initialClient);
-      } else {
-        setClient(null);
-      }
+      if (initialClient) setClient(initialClient);
+      else setClient(null);
       setSearch('');
       setCart([]);
+      setPaymentMethod('');
+      setIsCredit(false);
+      setIncludeTVA(true);
     }
   }, [visible, initialClient]);
 
@@ -161,7 +164,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
   };
 
   const totalHT = cart.reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity)), 0);
-  const tva = totalHT * 0.19;
+  const tva = includeTVA ? totalHT * 0.19 : 0;
   const totalTTC = totalHT + tva;
 
   const saveSale = async () => {
@@ -173,18 +176,25 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
       Alert.alert('Erreur', 'Ajoutez au moins un produit');
       return;
     }
+    if (!isCredit && !paymentMethod) {
+      Alert.alert('Erreur', 'Veuillez sélectionner un mode de paiement');
+      return;
+    }
     setLoading(true);
     try {
+      const status = isCredit ? 'pending' : 'paid';
       const saleData = {
         client_id: client.id,
         client_name: client.name,
         date: new Date().toLocaleDateString(),
         items: cart.length,
         total: totalTTC,
-        status: 'pending',
+        status: status,
         invoice: `FAC-${Date.now()}`,
         sale_date: new Date().toISOString(),
-        payment_status: 'pending',
+        payment_status: status,
+        payment_method: isCredit ? 'credit' : paymentMethod,
+        tva_applied: includeTVA,
       };
       const itemsData = cart.map(item => ({
         product_id: item.id,
@@ -205,9 +215,8 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     }
   };
 
-  // Rendu d'un élément du panier (utilisé dans ScrollView)
-  const renderCartItem = (item) => (
-    <View key={item.id} style={styles.cartTableRow}>
+  const renderCartItem = ({ item }) => (
+    <View style={styles.cartTableRow}>
       <Text style={[styles.cartTableCell, styles.cartProductName]} numberOfLines={1}>{item.name}</Text>
       <View style={styles.cartQuantityCell}>
         <TouchableOpacity onPress={() => updateQuantity(item.id, -1)} style={styles.qtyBtnSmall}>
@@ -245,7 +254,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             </TouchableOpacity>
           </View>
 
-          {/* Produits disponibles (ScrollView) */}
+          {/* Produits disponibles */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Produits disponibles</Text>
             <TextInput
@@ -270,7 +279,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             </ScrollView>
           </View>
 
-          {/* Panier (ScrollView au lieu de FlatList pour éviter l'avertissement) */}
+          {/* Panier */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Panier</Text>
             {cart.length === 0 ? (
@@ -283,20 +292,85 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
                   <Text style={[styles.cartHeaderCell, styles.cartPriceHeader]}>Prix U.</Text>
                   <Text style={[styles.cartHeaderCell, styles.cartTotalHeader]}>Total</Text>
                 </View>
-                <ScrollView style={styles.cartScrollView} nestedScrollEnabled={true}>
-                  {cart.map(item => renderCartItem(item))}
-                </ScrollView>
+                <FlatList
+                  data={cart}
+                  keyExtractor={item => item.id.toString()}
+                  renderItem={renderCartItem}
+                  scrollEnabled={true}
+                  style={styles.cartList}
+                />
               </>
             )}
           </View>
+
+          {/* Options : Crédit / TVA */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Options</Text>
+            <View style={styles.optionsRow}>
+              <TouchableOpacity
+                style={[styles.optionBtn, !isCredit && styles.optionBtnActive]}
+                onPress={() => setIsCredit(false)}
+              >
+                <Text style={[styles.optionBtnText, !isCredit && { color: '#fff' }]}>Paiement immédiat</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.optionBtn, isCredit && styles.optionBtnActive]}
+                onPress={() => setIsCredit(true)}
+              >
+                <Text style={[styles.optionBtnText, isCredit && { color: '#fff' }]}>Crédit</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.optionsRow}>
+              <TouchableOpacity
+                style={[styles.optionBtn, includeTVA && styles.optionBtnActive]}
+                onPress={() => setIncludeTVA(true)}
+              >
+                <Text style={[styles.optionBtnText, includeTVA && { color: '#fff' }]}>TVA incluse</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.optionBtn, !includeTVA && styles.optionBtnActive]}
+                onPress={() => setIncludeTVA(false)}
+              >
+                <Text style={[styles.optionBtnText, !includeTVA && { color: '#fff' }]}>TVA exclue</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Mode de paiement (si crédit non sélectionné) */}
+          {!isCredit && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Mode de paiement</Text>
+              <View style={styles.paymentRow}>
+                {[
+                  { value: 'cash', label: '💰 Espèces', icon: '💰' },
+                  { value: 'card', label: '💳 Carte bancaire', icon: '💳' },
+                  { value: 'transfer', label: '🏦 Virement', icon: '🏦' },
+                  { value: 'check', label: '📝 Chèque', icon: '📝' },
+                ].map(option => (
+                  <TouchableOpacity
+                    key={option.value}
+                    style={[styles.paymentOption, paymentMethod === option.value && styles.paymentOptionActive]}
+                    onPress={() => setPaymentMethod(option.value)}
+                  >
+                    <Text style={styles.paymentIcon}>{option.icon}</Text>
+                    <Text style={[styles.paymentLabel, paymentMethod === option.value && styles.paymentLabelActive]}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
           {/* Totaux */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Récapitulatif</Text>
             <View style={styles.totalRow}><Text>Total HT</Text><Text>{formatDA(totalHT)}</Text></View>
-            <View style={styles.totalRow}><Text>TVA (19%)</Text><Text>{formatDA(tva)}</Text></View>
+            {includeTVA && (
+              <View style={styles.totalRow}><Text>TVA (19%)</Text><Text>{formatDA(tva)}</Text></View>
+            )}
             <View style={[styles.totalRow, styles.grandTotal]}>
-              <Text style={{ fontWeight: 'bold' }}>Total TTC</Text>
+              <Text style={{ fontWeight: 'bold' }}>Total {includeTVA ? 'TTC' : 'HT'}</Text>
               <Text style={{ fontWeight: 'bold', color: COLORS.primary }}>{formatDA(totalTTC)}</Text>
             </View>
           </View>
@@ -344,7 +418,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
         </View>
       </Modal>
 
-      {/* Modal produit */}
+      {/* Modal produit (inchangé) */}
       <Modal visible={productModalVisible} animationType="fade" transparent onRequestClose={() => setProductModalVisible(false)}>
         <View style={styles.productModalOverlay}>
           <View style={styles.productModalContent}>
@@ -417,7 +491,17 @@ const styles = StyleSheet.create({
   priceTouchable: { flex: 2, alignItems: 'flex-end', paddingVertical: 6, paddingHorizontal: 4 },
   cartPriceCell: { textAlign: 'right', paddingRight: 8 },
   cartTotalCell: { flex: 2, textAlign: 'right', fontWeight: '500', color: COLORS.primary },
-  cartScrollView: { maxHeight: 250 },
+  cartList: { maxHeight: 250 },
+  optionsRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
+  optionBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: '#eee' },
+  optionBtnActive: { backgroundColor: COLORS.primary },
+  optionBtnText: { fontSize: 14, fontWeight: '500', color: COLORS.text },
+  paymentRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 },
+  paymentOption: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#f0f0f0', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, gap: 6 },
+  paymentOptionActive: { backgroundColor: COLORS.primary },
+  paymentIcon: { fontSize: 16 },
+  paymentLabel: { fontSize: 13, color: COLORS.text },
+  paymentLabelActive: { color: '#fff' },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8 },
   grandTotal: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#E0E0E0' },
   footer: { flexDirection: 'row', gap: 12, padding: 16, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#E0E0E0' },

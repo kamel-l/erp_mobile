@@ -1,5 +1,6 @@
 // src/database/database.js
 import * as SQLite from 'expo-sqlite';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Ouvrir (ou créer) la base de données
 const db = SQLite.openDatabaseSync('erp.db');
@@ -137,6 +138,8 @@ export const initDatabase = async () => {
         value TEXT
       );
     `);
+    await initUsersTable();
+
 
     console.log('✅ Base de données SQLite initialisée');
   } catch (error) {
@@ -492,18 +495,123 @@ export const clearAllData = async () => {
     // Supprimer le contenu de toutes les tables
     const tables = [
       'products', 'sales', 'sale_items', 'clients', 'employees',
-      'dashboard_stats', 'sales_week', 'low_stock', 'pending_actions', 'sync_info'
+      'dashboard_stats', 'sales_week', 'low_stock', 'pending_actions', 'sync_info', 'users'
     ];
     for (const table of tables) {
       await db.execAsync(`DELETE FROM ${table}`);
-      // Réinitialiser les séquences d'auto-incrément (optionnel)
       if (table !== 'sync_info' && table !== 'dashboard_stats') {
         await db.execAsync(`DELETE FROM sqlite_sequence WHERE name = '${table}'`);
       }
     }
-    console.log('🗑️ Toutes les données SQLite effacées');
+    // Recréer l'utilisateur admin par défaut
+    await db.runAsync(
+      `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
+      'admin', 'admin123', 'admin', 'Administrateur', new Date().toISOString()
+    );
+    console.log('🗑️ Toutes les données SQLite effacées, admin recréé');
   } catch (error) {
     console.error('Erreur clearAllData:', error);
+  }
+};
+
+// ========== GESTION DES UTILISATEURS ==========
+export const initUsersTable = async () => {
+  try {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT DEFAULT 'user',
+        fullname TEXT,
+        created_at TEXT
+      );
+    `);
+    // Créer l'admin par défaut si aucun utilisateur
+    const admin = await db.getFirstAsync('SELECT * FROM users WHERE username = ?', 'admin');
+    if (!admin) {
+      await db.runAsync(
+        `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
+        'admin', 'admin123', 'admin', 'Administrateur', new Date().toISOString()
+      );
+    }
+  } catch (error) {
+    console.error('Erreur initUsersTable:', error);
+  }
+};
+
+export const getUsers = async () => {
+  try {
+    return await db.getAllAsync('SELECT id, username, role, fullname, created_at FROM users');
+  } catch (error) {
+    console.error('Erreur getUsers:', error);
+    return [];
+  }
+};
+
+export const getUserByUsername = async (username) => {
+  try {
+    return await db.getFirstAsync('SELECT * FROM users WHERE username = ?', username);
+  } catch (error) {
+    console.error('Erreur getUserByUsername:', error);
+    return null;
+  }
+};
+
+export const addUser = async (username, password, role, fullname) => {
+  try {
+    const existing = await getUserByUsername(username);
+    if (existing) throw new Error('Nom d\'utilisateur déjà existant');
+    await db.runAsync(
+      `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
+      username, password, role, fullname, new Date().toISOString()
+    );
+    return true;
+  } catch (error) {
+    throw error;
+  }
+};
+
+export const updateUserPassword = async (userId, newPassword) => {
+  try {
+    await db.runAsync('UPDATE users SET password = ? WHERE id = ?', newPassword, userId);
+    return true;
+  } catch (error) {
+    console.error('Erreur updateUserPassword:', error);
+    return false;
+  }
+};
+
+export const deleteUser = async (userId) => {
+  try {
+    await db.runAsync('DELETE FROM users WHERE id = ?', userId);
+    return true;
+  } catch (error) {
+    console.error('Erreur deleteUser:', error);
+    return false;
+  }
+};
+
+export const getCurrentUser = async () => {
+  const userJson = await AsyncStorage.getItem('@erp_current_user');
+  return userJson ? JSON.parse(userJson) : null;
+};
+
+export const setCurrentUser = async (user) => {
+  await AsyncStorage.setItem('@erp_current_user', JSON.stringify(user));
+};
+
+export const clearCurrentUser = async () => {
+  await AsyncStorage.removeItem('@erp_current_user');
+};
+
+export const updateSaleStatus = async (saleId, newStatus) => {
+  try {
+    await db.runAsync('UPDATE sales SET status = ? WHERE id = ?', newStatus, saleId);
+    return true;
+  } catch (error) {
+    console.error('Erreur updateSaleStatus:', error);
+    return false;
   }
 };
 
