@@ -248,7 +248,9 @@ export const getLocalSales = async () => {
   try {
     const sales = await db.getAllAsync('SELECT * FROM sales ORDER BY id DESC');
     for (const sale of sales) {
-      const items = await db.getAllAsync('SELECT * FROM sale_items WHERE sale_id = ?', sale.id);
+      // Convertir explicitement l'ID en nombre
+      const saleId = Number(sale.id);
+      const items = await db.getAllAsync('SELECT * FROM sale_items WHERE sale_id = ?', saleId);
       sale.items = items;
     }
     return sales;

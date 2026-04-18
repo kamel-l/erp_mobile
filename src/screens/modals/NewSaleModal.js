@@ -5,17 +5,20 @@ import {
   StyleSheet, Alert, ActivityIndicator, FlatList,
   ScrollView,
 } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS, formatDA } from '../../services/theme';
 import {
   getLocalProducts,
   saveSaleLocally,
   getLocalClients,
   saveClientsLocally,
+  getProductByBarcode,
 } from '../../database/database';
 
 export default function NewSaleModal({ visible, onClose, onSaved, initialClient }) {
   const [client, setClient] = useState(null);
   const [search, setSearch] = useState('');
+  const [barcode, setBarcode] = useState('');
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -29,6 +32,8 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
   const [paymentMethod, setPaymentMethod] = useState('');
   const [isCredit, setIsCredit] = useState(false);
   const [includeTVA, setIncludeTVA] = useState(true);
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
 
   useEffect(() => {
     if (visible) {
@@ -37,6 +42,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
       if (initialClient) setClient(initialClient);
       else setClient(null);
       setSearch('');
+      setBarcode('');
       setCart([]);
       setPaymentMethod('');
       setIsCredit(false);
@@ -96,6 +102,37 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     }
     setSelectedProduct(product);
     setProductModalVisible(true);
+  };
+
+  const searchProductByBarcode = async (code) => {
+    if (!code) return;
+    try {
+      const product = await getProductByBarcode(code.trim());
+      if (product) {
+        openProductModal(product);
+        setBarcode('');
+      } else {
+        Alert.alert('Non trouvé', 'Aucun produit avec ce code-barres');
+      }
+    } catch (error) {
+      Alert.alert('Erreur', error.message);
+    }
+  };
+
+  const handleBarCodeScanned = ({ data }) => {
+    setScannerVisible(false);
+    searchProductByBarcode(data);
+  };
+
+  const openScanner = async () => {
+    if (!permission?.granted) {
+      const { granted } = await requestPermission();
+      if (!granted) {
+        Alert.alert('Permission refusée', 'Vous devez autoriser l\'accès à la caméra pour scanner');
+        return;
+      }
+    }
+    setScannerVisible(true);
   };
 
   const addOrUpdateCart = () => {
@@ -254,12 +291,32 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             </TouchableOpacity>
           </View>
 
+          {/* Ajout par code-barres avec scan */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Ajouter par code-barres</Text>
+            <View style={styles.barcodeRow}>
+              <TextInput
+                style={styles.barcodeInput}
+                placeholder="Saisir un code-barres"
+                value={barcode}
+                onChangeText={setBarcode}
+                onSubmitEditing={() => searchProductByBarcode(barcode)}
+              />
+              <TouchableOpacity style={styles.barcodeBtn} onPress={() => searchProductByBarcode(barcode)}>
+                <Text style={styles.barcodeBtnText}>🔍</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.scanBtn} onPress={openScanner}>
+                <Text style={styles.scanBtnText}>📷</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           {/* Produits disponibles */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Produits disponibles</Text>
             <TextInput
               style={styles.searchInput}
-              placeholder="Rechercher"
+              placeholder="Rechercher par nom"
               value={search}
               onChangeText={setSearch}
             />
@@ -269,6 +326,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
                   <View style={{ flex: 1 }}>
                     <Text style={styles.productName}>{product.name}</Text>
                     <Text style={styles.productPrice}>{formatDA(Number(product.price))}</Text>
+                    {product.barcode && <Text style={styles.productBarcode}>Code: {product.barcode}</Text>}
                   </View>
                   <Text style={styles.addIcon}>+</Text>
                 </TouchableOpacity>
@@ -384,7 +442,28 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
         </View>
       </View>
 
-      {/* Modal client (inchangé) */}
+      {/* Modal scanner */}
+      <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
+        <View style={styles.scannerContainer}>
+          <View style={styles.scannerHeader}>
+            <Text style={styles.scannerTitle}>Scanner un code-barres</Text>
+            <TouchableOpacity onPress={() => setScannerVisible(false)} style={styles.scannerClose}>
+              <Text style={styles.scannerCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <CameraView
+            style={styles.scanner}
+            facing="back"
+            onBarcodeScanned={handleBarCodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ['ean13', 'ean8', 'code128', 'code39', 'qr', 'upc_a', 'upc_e'],
+            }}
+          />
+          <Text style={styles.scannerHint}>Placez le code-barres devant la caméra</Text>
+        </View>
+      </Modal>
+
+      {/* Modals client et produit (inchangés) */}
       <Modal visible={clientModalVisible} animationType="slide" transparent onRequestClose={() => setClientModalVisible(false)}>
         <View style={styles.clientModalOverlay}>
           <View style={styles.clientModalContent}>
@@ -418,7 +497,6 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
         </View>
       </Modal>
 
-      {/* Modal produit (inchangé) */}
       <Modal visible={productModalVisible} animationType="fade" transparent onRequestClose={() => setProductModalVisible(false)}>
         <View style={styles.productModalOverlay}>
           <View style={styles.productModalContent}>
@@ -458,6 +536,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
 }
 
 const styles = StyleSheet.create({
+  // ... styles existants (gardez tous ceux que vous aviez)
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
   title: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
@@ -468,11 +547,18 @@ const styles = StyleSheet.create({
   clientSelector: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 12, backgroundColor: '#fff' },
   clientSelectorText: { fontSize: 14, color: COLORS.text },
   chevron: { fontSize: 14, color: COLORS.textSecondary },
+  barcodeRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  barcodeInput: { flex: 1, borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 10, backgroundColor: '#fff' },
+  barcodeBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  barcodeBtnText: { color: '#fff', fontWeight: '500', fontSize: 16 },
+  scanBtn: { backgroundColor: COLORS.success, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  scanBtnText: { color: '#fff', fontWeight: '500', fontSize: 16 },
   searchInput: { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 10, marginBottom: 12, backgroundColor: '#fff' },
   productScrollView: { maxHeight: 200, backgroundColor: '#fff', borderRadius: 8, borderWidth: 0.5, borderColor: '#E0E0E0' },
   productItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 0.5, borderBottomColor: '#E0E0E0' },
   productName: { fontSize: 14, fontWeight: '500' },
   productPrice: { fontSize: 12, color: COLORS.textSecondary },
+  productBarcode: { fontSize: 10, color: COLORS.textSecondary, marginTop: 2 },
   addIcon: { fontSize: 20, color: COLORS.primary, marginLeft: 8 },
   emptyText: { textAlign: 'center', padding: 20, color: COLORS.textSecondary },
   emptyCart: { textAlign: 'center', color: COLORS.textSecondary, padding: 20 },
@@ -533,4 +619,12 @@ const styles = StyleSheet.create({
   productModalCancelText: { color: COLORS.textSecondary, fontWeight: '500' },
   productModalConfirm: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: COLORS.primary },
   productModalConfirmText: { color: '#fff', fontWeight: '500' },
+  // Styles pour le scanner
+  scannerContainer: { flex: 1, backgroundColor: '#000' },
+  scannerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#111' },
+  scannerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
+  scannerClose: { padding: 8 },
+  scannerCloseText: { fontSize: 20, color: '#fff' },
+  scanner: { flex: 1 },
+  scannerHint: { textAlign: 'center', color: '#fff', padding: 16, backgroundColor: '#111' },
 });

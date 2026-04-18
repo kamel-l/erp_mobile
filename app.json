@@ -17,7 +17,8 @@
       "expo-build-properties",
       "expo-secure-store",
       "expo-sharing",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-barcode-scanner"
     ]
   }
 }

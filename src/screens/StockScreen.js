@@ -5,6 +5,7 @@ import {
   TouchableOpacity, Alert, ActivityIndicator, TextInput, Modal,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import Papa from 'papaparse';
@@ -13,7 +14,7 @@ import {
   Card, KpiCard, Badge, SectionTitle, Divider,
   ProgressBar, SearchBar,
 } from '../components/UIComponents';
-import { getLocalProducts, saveProductsLocally } from '../database/database';
+import { getLocalProducts, saveProductsLocally, getProductByBarcode } from '../database/database';
 
 const DEFAULT_STOCK = [
   { id: 1, name: 'Ordinateur HP ProBook', barcode: 'HP001', category: 'Informatique', price: 75000, stock_quantity: 2, min_stock: 2 },
@@ -31,7 +32,7 @@ export default function StockScreen() {
   const [tab, setTab] = useState('all');
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [modalVisible, setModalVisible] = useState(false);     // modal ajout produit
+  const [modalVisible, setModalVisible] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: '',
     barcode: '',
@@ -40,6 +41,8 @@ export default function StockScreen() {
     stock_quantity: '',
     min_stock: '',
   });
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
 
   const loadProducts = useCallback(async () => {
     try {
@@ -100,9 +103,7 @@ export default function StockScreen() {
     return 'ok';
   };
 
-  // Ajout manuel d'un produit
   const addProduct = async () => {
-    // Validation
     if (!newProduct.name.trim()) {
       Alert.alert('Erreur', 'Le nom du produit est obligatoire');
       return;
@@ -114,6 +115,15 @@ export default function StockScreen() {
     }
     const stockQty = parseInt(newProduct.stock_quantity) || 0;
     const minStock = parseInt(newProduct.min_stock) || 0;
+
+    // Vérifier si le code-barres existe déjà
+    if (newProduct.barcode.trim()) {
+      const existing = await getProductByBarcode(newProduct.barcode.trim());
+      if (existing) {
+        Alert.alert('Erreur', 'Un produit avec ce code-barres existe déjà');
+        return;
+      }
+    }
 
     const product = {
       id: Date.now() + Math.random(),
@@ -137,7 +147,23 @@ export default function StockScreen() {
     }
   };
 
-  // Import depuis fichier CSV (inchangé)
+  const handleBarCodeScanned = ({ data }) => {
+    setScannerVisible(false);
+    setNewProduct(prev => ({ ...prev, barcode: data }));
+    Alert.alert('Code-barres scanné', data);
+  };
+
+  const openScanner = async () => {
+    if (!permission?.granted) {
+      const { granted } = await requestPermission();
+      if (!granted) {
+        Alert.alert('Permission refusée', 'Vous devez autoriser l\'accès à la caméra pour scanner');
+        return;
+      }
+    }
+    setScannerVisible(true);
+  };
+
   const importFromFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -161,7 +187,6 @@ export default function StockScreen() {
           Alert.alert('Erreur', 'Aucun produit valide trouvé dans le CSV');
           return;
         }
-        // Fusion simple : on ajoute les nouveaux produits sans vérifier doublon (mais on garde l'existant)
         const updatedProducts = [...products, ...newProducts];
         await saveProductsLocally(updatedProducts);
         await loadProducts();
@@ -196,7 +221,6 @@ export default function StockScreen() {
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}
       >
-        {/* KPIs */}
         <View style={styles.kpiRow}>
           <KpiCard value={totalProducts} label="Total produits" color={COLORS.primary} style={{ marginRight: 6 }} />
           <KpiCard value={lowStockCount} label="Stock critique" color={COLORS.danger} style={{ marginLeft: 6 }} />
@@ -211,7 +235,6 @@ export default function StockScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Barre de recherche + boutons import / ajout */}
         <View style={styles.searchRow}>
           <View style={{ flex: 1 }}>
             <SearchBar value={search} onChangeText={setSearch} placeholder="Chercher un produit..." />
@@ -224,7 +247,6 @@ export default function StockScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Tabs */}
         <View style={styles.tabRow}>
           <TouchableOpacity style={[styles.tab, tab === 'all' && styles.tabActive]} onPress={() => setTab('all')}>
             <Text style={[styles.tabText, tab === 'all' && styles.tabTextActive]}>Tous</Text>
@@ -234,7 +256,6 @@ export default function StockScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Liste des produits */}
         <SectionTitle>{tab === 'low' ? 'Produits en stock faible' : 'Inventaire complet'}</SectionTitle>
         <Card style={{ paddingVertical: 4 }}>
           {filtered.map((p, i) => {
@@ -270,7 +291,7 @@ export default function StockScreen() {
         </Card>
       </ScrollView>
 
-      {/* Modal d'ajout de produit */}
+      {/* Modal d'ajout de produit avec scan */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -313,12 +334,17 @@ export default function StockScreen() {
               value={newProduct.category}
               onChangeText={text => setNewProduct({ ...newProduct, category: text })}
             />
-            <TextInput
-              style={styles.input}
-              placeholder="Code-barres (optionnel)"
-              value={newProduct.barcode}
-              onChangeText={text => setNewProduct({ ...newProduct, barcode: text })}
-            />
+            <View style={styles.barcodeRow}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder="Code-barres (optionnel)"
+                value={newProduct.barcode}
+                onChangeText={text => setNewProduct({ ...newProduct, barcode: text })}
+              />
+              <TouchableOpacity style={styles.scanBtn} onPress={openScanner}>
+                <Text style={styles.scanBtnText}>📷</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.modalCancel} onPress={() => setModalVisible(false)}>
                 <Text style={styles.modalCancelText}>Annuler</Text>
@@ -328,6 +354,27 @@ export default function StockScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      {/* Modal scanner */}
+      <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
+        <View style={styles.scannerContainer}>
+          <View style={styles.scannerHeader}>
+            <Text style={styles.scannerTitle}>Scanner un code-barres</Text>
+            <TouchableOpacity onPress={() => setScannerVisible(false)} style={styles.scannerClose}>
+              <Text style={styles.scannerCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <CameraView
+            style={styles.scanner}
+            facing="back"
+            onBarcodeScanned={handleBarCodeScanned}
+            barcodeScannerSettings={{
+              barcodeTypes: ['ean13', 'ean8', 'code128', 'code39', 'qr', 'upc_a', 'upc_e'],
+            }}
+          />
+          <Text style={styles.scannerHint}>Placez le code-barres devant la caméra</Text>
         </View>
       </Modal>
     </View>
@@ -361,9 +408,19 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%', maxHeight: '80%' },
   modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: COLORS.primary },
   input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 14 },
+  barcodeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  scanBtn: { backgroundColor: COLORS.success, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, justifyContent: 'center' },
+  scanBtnText: { color: '#fff', fontSize: 16 },
   modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
   modalCancel: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6, backgroundColor: '#eee' },
   modalCancelText: { color: COLORS.textSecondary, fontWeight: '500' },
   modalConfirm: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 6, backgroundColor: COLORS.primary },
   modalConfirmText: { color: '#fff', fontWeight: '500' },
+  scannerContainer: { flex: 1, backgroundColor: '#000' },
+  scannerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#111' },
+  scannerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
+  scannerClose: { padding: 8 },
+  scannerCloseText: { fontSize: 20, color: '#fff' },
+  scanner: { flex: 1 },
+  scannerHint: { textAlign: 'center', color: '#fff', padding: 16, backgroundColor: '#111' },
 });
