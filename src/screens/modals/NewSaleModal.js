@@ -219,6 +219,12 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     }
     setLoading(true);
     try {
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('fr-FR').replace(/\//g, '-');
+      const timeStr = now.getTime();
+      const clientNameSanitized = client.name.replace(/\s+/g, '_');
+      const invoice = `FACTURE_${clientNameSanitized}_${dateStr}_${timeStr}`;
+
       const status = isCredit ? 'pending' : 'paid';
       const saleData = {
         client_id: client.id,
@@ -227,7 +233,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
         items: cart.length,
         total: totalTTC,
         status: status,
-        invoice: `FAC-${Date.now()}`,
+        invoice: invoice,
         sale_date: new Date().toISOString(),
         payment_status: status,
         payment_method: isCredit ? 'credit' : paymentMethod,
