@@ -7,18 +7,27 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "android": {
-      "package": "com.kamelat.erpmobile",
+      "package": "com.kmeldz.erpmobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
-      }
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ]
     },
     "plugins": [
       "expo-build-properties",
       "expo-secure-store",
       "expo-sharing",
       "expo-sqlite",
-      "expo-barcode-scanner"
-    ]
+      "expo-barcode-scanner",
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2091e662-f93f-47a5-842e-0ffee4960aaa"
+      }
+    }
   }
 }
