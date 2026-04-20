@@ -197,10 +197,21 @@ export default function StockScreen() {
     }
   };
 
-  const filtered = products.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    (p.category && p.category.toLowerCase().includes(search.toLowerCase()))
-  ).filter(p => tab !== 'low' || p.stock_quantity <= p.min_stock);
+  const filtered = products.filter(p => {
+    const searchLower = search.toLowerCase();
+    if (searchLower === '') return true;
+    // Première lettre du nom
+    const nameFirst = p.name.charAt(0).toLowerCase();
+    if (nameFirst === searchLower) return true;
+    // Première lettre du code-barres
+    const barcodeFirst = p.barcode ? p.barcode.charAt(0).toLowerCase() : '';
+    if (barcodeFirst === searchLower) return true;
+    // Pour conserver la recherche par code-barres complet (scanner)
+    if (p.barcode && p.barcode.toLowerCase().includes(searchLower)) return true;
+    return false;
+  });
+
+
 
   const totalProducts = products.length;
   const lowStockCount = products.filter(p => p.stock_quantity <= p.min_stock).length;

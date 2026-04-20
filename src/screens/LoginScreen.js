@@ -21,35 +21,15 @@ export default function LoginScreen({ navigation }) {
       return;
     }
     setLoading(true);
-    let loggedIn = false;
-    try {
-      // Tentative de connexion au serveur (silencieuse)
-      try {
-        await authAPI.login(username.trim(), password);
-        loggedIn = true;
-      } catch (serverError) {
-        // Ignorer l'erreur serveur (mode offline)
-        console.log('Serveur indisponible, passage en mode hors ligne');
-      }
-      if (!loggedIn) {
-        // Mode hors ligne : vérification locale
-        const user = await getUserByUsername(username.trim());
-        if (user && user.password === password) {
-          await setCurrentUser({ id: user.id, username: user.username, role: user.role, fullname: user.fullname });
-          loggedIn = true;
-        }
-      }
-      if (loggedIn) {
-        navigation.replace('Main');
-      } else {
-        Alert.alert('Connexion échouée', 'Identifiant ou mot de passe incorrect.\n\nMode hors ligne : admin / admin123');
-      }
-    } catch (err) {
-      Alert.alert('Erreur', 'Problème de connexion');
-    } finally {
-      setLoading(false);
+    // Mode offline uniquement (pas d'appel API)
+    if (username === 'admin' && password === 'admin123') {
+      navigation.replace('Main');
+    } else {
+      Alert.alert('Connexion échouée', 'Identifiant ou mot de passe incorrect.');
     }
+    setLoading(false);
   };
+
 
   return (
     <KeyboardAvoidingView

@@ -505,6 +505,8 @@ export const clearAllData = async () => {
         await db.execAsync(`DELETE FROM sqlite_sequence WHERE name = '${table}'`);
       }
     }
+    await db.runAsync('DELETE FROM invoice_counter');
+    await initInvoiceCounter(); // pour recréer avec 999
     // Recréer l'utilisateur admin par défaut
     await db.runAsync(
       `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
@@ -615,6 +617,33 @@ export const updateSaleStatus = async (saleId, newStatus) => {
     console.error('Erreur updateSaleStatus:', error);
     return false;
   }
+};
+
+// Initialisation du compteur de factures
+export const initInvoiceCounter = async () => {
+  try {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS invoice_counter (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        last_number INTEGER DEFAULT 999
+      );
+    `);
+    const row = await db.getFirstAsync('SELECT last_number FROM invoice_counter WHERE id = 1');
+    if (!row) {
+      await db.runAsync('INSERT INTO invoice_counter (id, last_number) VALUES (1, 999)');
+    }
+  } catch (error) {
+    console.error('Erreur initInvoiceCounter:', error);
+  }
+};
+
+// Obtenir le prochain numéro de facture
+export const getNextInvoiceNumber = async () => {
+  await initInvoiceCounter();
+  const row = await db.getFirstAsync('SELECT last_number FROM invoice_counter WHERE id = 1');
+  const newNumber = (row?.last_number || 999) + 1;
+  await db.runAsync('UPDATE invoice_counter SET last_number = ? WHERE id = 1', newNumber);
+  return newNumber;
 };
 
 // Initialiser la base au démarrage de l'app

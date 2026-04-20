@@ -2,30 +2,31 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import * as Network from 'expo-network';
+import { MOCK_DATA } from './mockData';
 import {
-  saveProductsOffline,
-  getProductsOffline,
-  saveDashboardStatsOffline,
+  getLocalProducts,
+  saveProductsLocally,
+  getLocalSales,
+  saveSaleLocally,
+  getLocalClients,
+  saveClientsLocally,
   getDashboardStatsOffline,
-  saveSalesWeekOffline,
+  saveDashboardStatsOffline,
   getSalesWeekOffline,
-  saveLowStockOffline,
+  saveSalesWeekOffline,
   getLowStockOffline,
-  saveEmployeesOffline,
+  saveLowStockOffline,
   getEmployeesOffline,
-  saveClientsOffline,
-  getClientsOffline,
+  saveEmployeesOffline,
   addPendingAction,
   getPendingActions,
   removePendingAction,
   setLastSyncTime,
   getLastSyncTime,
-} from '../database/database'; // ← nouveau chemin
-import { MOCK_DATA } from './mockData';
+} from '../database/database';
 
-// ─── CONFIGURATION ────────────────────────────────────────────────────────────
-// Remplacez par l'IP de votre machine sur le réseau local
-const BASE_URL = 'http://192.168.1.65:5000';  // ← CHANGEZ CETTE IP
+// ========== CONFIGURATION ==========
+const BASE_URL = 'http://192.168.1.65:5000'; // À adapter à votre serveur
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -33,33 +34,44 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Inject token automatiquement
+// Intercepteur pour ajouter le token
 api.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync('auth_token');
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
-// Vérification de connexion
+// ========== VÉRIFICATION DE CONNEXION ==========
 export const isConnected = async () => {
   try {
-    const networkState = await Network.getNetworkStateAsync();
-    return networkState.isConnected && networkState.isInternetReachable;
-  } catch (error) {
+    const state = await Network.getNetworkStateAsync();
+    return state.isConnected && state.isInternetReachable;
+  } catch {
     return false;
   }
 };
 
-// ─── AUTHENTIFICATION ─────────────────────────────────────────────────────────
+// ========== AUTHENTIFICATION ==========
 export const authAPI = {
   login: async (username, password) => {
     try {
-      const res = await api.post('/auth/login', { username, password });
-      await SecureStore.setItemAsync('auth_token', res.data.token);
-      await SecureStore.setItemAsync('user_data', JSON.stringify(res.data.user));
-      // Commenter la ligne suivante pour éviter l'erreur
-      // await syncManager.syncAllData();
-      return res.data;
+      if (await isConnected()) {
+        const res = await api.post('/auth/login', { username, password });
+        await SecureStore.setItemAsync('auth_token', res.data.token);
+        await SecureStore.setItemAsync('user_data', JSON.stringify(res.data.user));
+        // Lancer la synchronisation en arrière-plan (sans attendre)
+        syncManager.syncAllData().catch(console.warn);
+        return res.data;
+      } else {
+        // Mode hors ligne : accepter admin/admin123
+        if (username === 'admin' && password === 'admin123') {
+          const offlineUser = { username: 'admin', role: 'Administrateur' };
+          await SecureStore.setItemAsync('user_data', JSON.stringify(offlineUser));
+          return { user: offlineUser, token: 'offline-token' };
+        } else {
+          throw new Error('Identifiants incorrects');
+        }
+      }
     } catch (error) {
       console.error('Login error:', error);
       throw error;
@@ -68,7 +80,7 @@ export const authAPI = {
 
   logout: async () => {
     try {
-      await api.post('/auth/logout');
+      if (await isConnected()) await api.post('/auth/logout');
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
@@ -83,20 +95,18 @@ export const authAPI = {
   },
 };
 
-// ─── DASHBOARD ────────────────────────────────────────────────────────────────
+// ========== DASHBOARD ==========
 export const dashboardAPI = {
   getStats: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/dashboard/stats');
-        await saveDashboardStatsOffline(response.data);
-        return response.data;
+        const res = await api.get('/dashboard/stats');
+        await saveDashboardStatsOffline(res.data);
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using cached stats');
     }
-
-    // Fallback offline
     const cached = await getDashboardStatsOffline();
     return cached || MOCK_DATA.stats;
   },
@@ -104,14 +114,13 @@ export const dashboardAPI = {
   getSalesWeek: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/dashboard/sales-week');
-        await saveSalesWeekOffline(response.data);
-        return response.data;
+        const res = await api.get('/dashboard/sales-week');
+        await saveSalesWeekOffline(res.data);
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using cached sales week');
     }
-
     const cached = await getSalesWeekOffline();
     return cached.length ? cached : MOCK_DATA.salesWeek;
   },
@@ -119,8 +128,8 @@ export const dashboardAPI = {
   getAlerts: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/dashboard/alerts');
-        return response.data;
+        const res = await api.get('/dashboard/alerts');
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using mock alerts');
@@ -129,47 +138,47 @@ export const dashboardAPI = {
   },
 };
 
-// ─── VENTES ───────────────────────────────────────────────────────────────────
+// ========== VENTES ==========
 export const salesAPI = {
   getAll: async (params = {}) => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/sales', { params });
-        await saveSalesOffline(response.data);
-        return response.data;
+        const res = await api.get('/sales', { params });
+        // Sauvegarder les ventes localement (à implémenter si besoin)
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using cached sales');
     }
-
-    const cached = await getSalesOffline();
-    return cached;
+    return await getLocalSales();
   },
 
   getById: async (id) => {
     try {
       if (await isConnected()) {
-        const response = await api.get(`/sales/${id}`);
-        return response.data;
+        const res = await api.get(`/sales/${id}`);
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: sale details not available');
     }
-    return null;
+    const sales = await getLocalSales();
+    return sales.find(s => s.id === id) || null;
   },
 
-  create: async (data) => {
+  create: async (saleData, itemsData) => {
     try {
       if (await isConnected()) {
-        const response = await api.post('/sales', data);
-        return response.data;
+        const res = await api.post('/sales', { sale: saleData, items: itemsData });
+        return res.data;
       } else {
-        // Stocker pour synchronisation ultérieure
+        // Sauvegarde locale + file d'attente
+        const saleId = await saveSaleLocally(saleData, itemsData);
         await addPendingAction({
           type: 'CREATE_SALE',
-          data: data,
+          data: { saleData, itemsData, saleId },
         });
-        return { offline: true, message: 'Vente sauvegardée localement, sera synchronisée plus tard' };
+        return { offline: true, saleId, message: 'Vente sauvegardée localement' };
       }
     } catch (error) {
       console.error('Error creating sale:', error);
@@ -180,8 +189,8 @@ export const salesAPI = {
   getStats: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/sales/stats');
-        return response.data;
+        const res = await api.get('/sales/stats');
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using mock stats');
@@ -192,59 +201,55 @@ export const salesAPI = {
   getClients: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/clients');
-        await saveClientsOffline(response.data);
-        return response.data;
+        const res = await api.get('/clients');
+        await saveClientsLocally(res.data);
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using cached clients');
     }
-    return await getClientsOffline();
+    return await getLocalClients();
   },
 };
 
-// ─── STOCK ────────────────────────────────────────────────────────────────────
+// ========== STOCK ==========
 export const stockAPI = {
   getProducts: async (params = {}) => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/products', { params });
-        await saveProductsOffline(response.data);
-        return response.data;
+        const res = await api.get('/products', { params });
+        await saveProductsLocally(res.data);
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using cached products');
     }
-
-    const cached = await getProductsOffline();
-    return cached;
+    return await getLocalProducts();
   },
 
   getProductByBarcode: async (barcode) => {
     try {
       if (await isConnected()) {
-        const response = await api.get(`/products/barcode/${barcode}`);
-        return response.data;
+        const res = await api.get(`/products/barcode/${barcode}`);
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: searching in cache');
     }
-
-    const products = await getProductsOffline();
+    const products = await getLocalProducts();
     return products.find(p => p.barcode === barcode) || null;
   },
 
   getLowStock: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/products/low-stock');
-        await saveLowStockOffline(response.data);
-        return response.data;
+        const res = await api.get('/products/low-stock');
+        await saveLowStockOffline(res.data);
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using cached low stock');
     }
-
     const cached = await getLowStockOffline();
     return cached.length ? cached : MOCK_DATA.lowStock;
   },
@@ -252,8 +257,8 @@ export const stockAPI = {
   getMovements: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/stock/movements');
-        return response.data;
+        const res = await api.get('/stock/movements');
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: movements not available');
@@ -264,8 +269,8 @@ export const stockAPI = {
   updateStock: async (productId, qty, type) => {
     try {
       if (await isConnected()) {
-        const response = await api.post('/stock/update', { product_id: productId, quantity: qty, type });
-        return response.data;
+        const res = await api.post('/stock/update', { product_id: productId, quantity: qty, type });
+        return res.data;
       } else {
         await addPendingAction({
           type: 'UPDATE_STOCK',
@@ -280,19 +285,18 @@ export const stockAPI = {
   },
 };
 
-// ─── RH ───────────────────────────────────────────────────────────────────────
+// ========== RH ==========
 export const hrAPI = {
   getEmployees: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/employees');
-        await saveEmployeesOffline(response.data);
-        return response.data;
+        const res = await api.get('/employees');
+        await saveEmployeesOffline(res.data);
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: using cached employees');
     }
-
     const cached = await getEmployeesOffline();
     return cached.length ? cached : MOCK_DATA.employees;
   },
@@ -300,8 +304,8 @@ export const hrAPI = {
   getAttendance: async (date) => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/attendance', { params: { date } });
-        return response.data;
+        const res = await api.get('/attendance', { params: { date } });
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: attendance not available');
@@ -312,8 +316,8 @@ export const hrAPI = {
   markAttendance: async (employeeId, status) => {
     try {
       if (await isConnected()) {
-        const response = await api.post('/attendance', { employee_id: employeeId, status });
-        return response.data;
+        const res = await api.post('/attendance', { employee_id: employeeId, status });
+        return res.data;
       } else {
         await addPendingAction({
           type: 'MARK_ATTENDANCE',
@@ -330,8 +334,8 @@ export const hrAPI = {
   getPayroll: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/payroll/current');
-        return response.data;
+        const res = await api.get('/payroll/current');
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: payroll not available');
@@ -340,13 +344,13 @@ export const hrAPI = {
   },
 };
 
-// ─── RAPPORTS ─────────────────────────────────────────────────────────────────
+// ========== RAPPORTS ==========
 export const reportsAPI = {
   getMonthly: async (year, month) => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/reports/monthly', { params: { year, month } });
-        return response.data;
+        const res = await api.get('/reports/monthly', { params: { year, month } });
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: monthly report not available');
@@ -357,8 +361,8 @@ export const reportsAPI = {
   getTopProducts: async () => {
     try {
       if (await isConnected()) {
-        const response = await api.get('/reports/top-products');
-        return response.data;
+        const res = await api.get('/reports/top-products');
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: top products not available');
@@ -369,8 +373,8 @@ export const reportsAPI = {
   exportPDF: async (type) => {
     try {
       if (await isConnected()) {
-        const response = await api.get(`/reports/export/${type}`, { responseType: 'blob' });
-        return response.data;
+        const res = await api.get(`/reports/export/${type}`, { responseType: 'blob' });
+        return res.data;
       }
     } catch (error) {
       console.log('Offline: PDF export not available');
@@ -379,14 +383,13 @@ export const reportsAPI = {
   },
 };
 
-// ─── GESTIONNAIRE DE SYNCHRONISATION ──────────────────────────────────────────
+// ========== GESTIONNAIRE DE SYNCHRONISATION ==========
 export const syncManager = {
   isSyncing: false,
 
   syncAllData: async () => {
     if (this.isSyncing) return;
-
-    if (!await isConnected()) {
+    if (!(await isConnected())) {
       console.log('No internet connection');
       return;
     }
@@ -395,20 +398,28 @@ export const syncManager = {
     console.log('🔄 Starting sync...');
 
     try {
-      // Sync pending actions
       const pendingActions = await getPendingActions();
       for (const action of pendingActions) {
         try {
           switch (action.type) {
-            case 'CREATE_SALE':
-              await api.post('/sales', action.data);
+            case 'CREATE_SALE': {
+              const { saleData, itemsData } = JSON.parse(action.data);
+              await api.post('/sales', { sale: saleData, items: itemsData });
               break;
-            case 'UPDATE_STOCK':
-              await api.post('/stock/update', action.data);
+            }
+            case 'UPDATE_STOCK': {
+              const { productId, qty, type } = JSON.parse(action.data);
+              await api.post('/stock/update', { product_id: productId, quantity: qty, type });
               break;
-            case 'MARK_ATTENDANCE':
-              await api.post('/attendance', action.data);
+            }
+            case 'MARK_ATTENDANCE': {
+              const { employeeId, status } = JSON.parse(action.data);
+              await api.post('/attendance', { employee_id: employeeId, status });
               break;
+            }
+            default:
+              console.warn(`Unknown action type: ${action.type}`);
+              continue;
           }
           await removePendingAction(action.id);
           console.log(`✓ Synced action: ${action.type}`);
@@ -417,7 +428,7 @@ export const syncManager = {
         }
       }
 
-      // Refresh all data
+      // Rafraîchir les données locales
       await Promise.all([
         dashboardAPI.getStats(),
         dashboardAPI.getSalesWeek(),
@@ -435,7 +446,11 @@ export const syncManager = {
       this.isSyncing = false;
     }
   },
+
+  sync: async () => {
+    await this.syncAllData();
+  },
 };
 
-// Export MOCK_DATA séparé
+// Export des données mockées pour fallback
 export { MOCK_DATA };

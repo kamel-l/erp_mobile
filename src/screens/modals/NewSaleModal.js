@@ -13,6 +13,7 @@ import {
   getLocalClients,
   saveClientsLocally,
   getProductByBarcode,
+  getNextInvoiceNumber,
 } from '../../database/database';
 
 export default function NewSaleModal({ visible, onClose, onSaved, initialClient }) {
@@ -86,10 +87,16 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     setClientModalVisible(false);
   };
 
-  const filteredProducts = products.filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase()) ||
-    (p.barcode && p.barcode.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filteredProducts = products.filter(p => {
+    const searchLower = search.toLowerCase();
+    if (searchLower === '') return true;
+    const nameFirst = p.name.charAt(0).toLowerCase();
+    if (nameFirst === searchLower) return true;
+    const barcodeFirst = p.barcode ? p.barcode.charAt(0).toLowerCase() : '';
+    if (barcodeFirst === searchLower) return true;
+    if (p.barcode && p.barcode.toLowerCase().includes(searchLower)) return true;
+    return false;
+  });
 
   const openProductModal = (product) => {
     const existing = cart.find(item => item.id === product.id);
@@ -135,6 +142,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     setScannerVisible(true);
   };
 
+  // Vérification du stock avant ajout/modification
   const addOrUpdateCart = () => {
     if (!selectedProduct) return;
     const qty = parseInt(quantity, 10);
@@ -147,8 +155,22 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
       Alert.alert('Erreur', 'Le prix doit être un nombre positif');
       return;
     }
+
+    // Vérifier le stock disponible
+    const stockDisponible = selectedProduct.stock_quantity || 0;
+    if (qty > stockDisponible) {
+      Alert.alert('Stock insuffisant', `Il ne reste que ${stockDisponible} exemplaire(s) de ${selectedProduct.name}`);
+      return;
+    }
+
     const existingIndex = cart.findIndex(item => item.id === selectedProduct.id);
     if (existingIndex !== -1) {
+      // Modification d'un produit existant : vérifier la nouvelle quantité
+      const ancienneQty = cart[existingIndex].quantity;
+      if (qty > stockDisponible) {
+        Alert.alert('Stock insuffisant', `Stock disponible : ${stockDisponible}`);
+        return;
+      }
       const updatedCart = [...cart];
       updatedCart[existingIndex] = {
         ...updatedCart[existingIndex],
@@ -165,11 +187,18 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     setUnitPrice('');
   };
 
+  // Mise à jour de la quantité dans le panier avec vérification du stock
   const updateQuantity = (id, delta) => {
     setCart(cart.map(item => {
       if (item.id === id) {
-        const newQty = Math.max(0, item.quantity + delta);
-        return newQty === 0 ? null : { ...item, quantity: newQty };
+        const newQty = item.quantity + delta;
+        if (newQty < 0) return null;
+        // Vérifier le stock si on augmente
+        if (delta > 0 && newQty > (item.stock_quantity || 0)) {
+          Alert.alert('Stock insuffisant', `Il ne reste que ${item.stock_quantity} exemplaire(s) de ${item.name}`);
+          return item;
+        }
+        return { ...item, quantity: newQty };
       }
       return item;
     }).filter(Boolean));
@@ -217,13 +246,25 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
       Alert.alert('Erreur', 'Veuillez sélectionner un mode de paiement');
       return;
     }
+
+    // Vérification globale du stock
+    const stockInsuffisant = cart.filter(item => item.quantity > (item.stock_quantity || 0));
+    if (stockInsuffisant.length > 0) {
+      const message = stockInsuffisant.map(item =>
+        `${item.name}: demande ${item.quantity}, stock ${item.stock_quantity || 0}`
+      ).join('\n');
+      Alert.alert('Stock insuffisant', `Les produits suivants dépassent le stock disponible :\n\n${message}`);
+      return;
+    }
+
     setLoading(true);
     try {
       const now = new Date();
       const dateStr = now.toLocaleDateString('fr-FR').replace(/\//g, '-');
       const timeStr = now.getTime();
       const clientNameSanitized = client.name.replace(/\s+/g, '_');
-      const invoice = `FACTURE_${clientNameSanitized}_${dateStr}_${timeStr}`;
+      const invoiceNumber = await getNextInvoiceNumber();
+      const invoice = `FACT-${invoiceNumber}`;
 
       const status = isCredit ? 'pending' : 'paid';
       const saleData = {
@@ -333,6 +374,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
                     <Text style={styles.productName}>{product.name}</Text>
                     <Text style={styles.productPrice}>{formatDA(Number(product.price))}</Text>
                     {product.barcode && <Text style={styles.productBarcode}>Code: {product.barcode}</Text>}
+                    <Text style={styles.stockInfo}>Stock: {product.stock_quantity || 0}</Text>
                   </View>
                   <Text style={styles.addIcon}>+</Text>
                 </TouchableOpacity>
@@ -448,7 +490,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
         </View>
       </View>
 
-      {/* Modal scanner */}
+      {/* Modal scanner (inchangé) */}
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
         <View style={styles.scannerContainer}>
           <View style={styles.scannerHeader}>
@@ -508,6 +550,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
           <View style={styles.productModalContent}>
             <Text style={styles.productModalTitle}>Ajouter au panier</Text>
             <Text style={styles.productNameModal}>{selectedProduct?.name}</Text>
+            <Text style={styles.stockInfoModal}>Stock disponible : {selectedProduct?.stock_quantity || 0}</Text>
             <View style={styles.productModalField}>
               <Text style={styles.productModalLabel}>Quantité :</Text>
               <TextInput
@@ -542,7 +585,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
 }
 
 const styles = StyleSheet.create({
-  // ... styles existants (gardez tous ceux que vous aviez)
+  // ... tous vos styles existants (conservez-les)
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
   title: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
@@ -565,6 +608,7 @@ const styles = StyleSheet.create({
   productName: { fontSize: 14, fontWeight: '500' },
   productPrice: { fontSize: 12, color: COLORS.textSecondary },
   productBarcode: { fontSize: 10, color: COLORS.textSecondary, marginTop: 2 },
+  stockInfo: { fontSize: 10, color: COLORS.warning, marginTop: 2 },
   addIcon: { fontSize: 20, color: COLORS.primary, marginLeft: 8 },
   emptyText: { textAlign: 'center', padding: 20, color: COLORS.textSecondary },
   emptyCart: { textAlign: 'center', color: COLORS.textSecondary, padding: 20 },
@@ -616,7 +660,8 @@ const styles = StyleSheet.create({
   productModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   productModalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%' },
   productModalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 12, color: COLORS.primary, textAlign: 'center' },
-  productNameModal: { fontSize: 16, fontWeight: '500', color: COLORS.text, textAlign: 'center', marginBottom: 20 },
+  productNameModal: { fontSize: 16, fontWeight: '500', color: COLORS.text, textAlign: 'center', marginBottom: 8 },
+  stockInfoModal: { fontSize: 12, color: COLORS.warning, textAlign: 'center', marginBottom: 16 },
   productModalField: { marginBottom: 15 },
   productModalLabel: { fontSize: 14, fontWeight: '500', marginBottom: 5, color: COLORS.text },
   productModalInput: { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, padding: 10, fontSize: 14, textAlign: 'center' },
@@ -625,7 +670,6 @@ const styles = StyleSheet.create({
   productModalCancelText: { color: COLORS.textSecondary, fontWeight: '500' },
   productModalConfirm: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: COLORS.primary },
   productModalConfirmText: { color: '#fff', fontWeight: '500' },
-  // Styles pour le scanner
   scannerContainer: { flex: 1, backgroundColor: '#000' },
   scannerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#111' },
   scannerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
