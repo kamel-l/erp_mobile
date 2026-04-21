@@ -387,7 +387,7 @@ export const reportsAPI = {
 export const syncManager = {
   isSyncing: false,
 
-  syncAllData: async () => {
+  async syncAllData() {
     if (this.isSyncing) return;
     if (!(await isConnected())) {
       console.log('No internet connection');

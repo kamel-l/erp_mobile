@@ -398,13 +398,13 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
                   <Text style={[styles.cartHeaderCell, styles.cartPriceHeader]}>Prix U.</Text>
                   <Text style={[styles.cartHeaderCell, styles.cartTotalHeader]}>Total</Text>
                 </View>
-                <FlatList
-                  data={cart}
-                  keyExtractor={item => item.id.toString()}
-                  renderItem={renderCartItem}
-                  scrollEnabled={true}
-                  style={styles.cartList}
-                />
+                <ScrollView style={styles.cartList} nestedScrollEnabled={true}>
+                  {cart.map((item) => (
+                    <React.Fragment key={item.id.toString()}>
+                      {renderCartItem({ item })}
+                    </React.Fragment>
+                  ))}
+                </ScrollView>
               </>
             )}
           </View>

@@ -244,6 +244,33 @@ export const saveSaleLocally = async (sale, items) => {
 };
 
 // Dans database.js, remplacez getLocalSales par :
+export const saveSalesOffline = async (sales) => {
+  try {
+    await db.execAsync('DELETE FROM sales');
+    await db.execAsync('DELETE FROM sale_items');
+    for (const sale of sales) {
+      const result = await db.runAsync(
+        `INSERT INTO sales (id, invoice, client_id, client_name, total, status, date, synced, server_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        sale.id, sale.invoice, sale.client_id || null, sale.client_name, sale.total,
+        sale.status || 'completed', sale.date, 1, sale.id, sale.created_at || new Date().toISOString()
+      );
+      if (sale.items && Array.isArray(sale.items)) {
+        for (const item of sale.items) {
+          await db.runAsync(
+            `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            sale.id, item.product_id || null, item.barcode, item.name, item.quantity,
+            item.unit_price, item.total, 1
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Erreur saveSalesOffline:', error);
+  }
+};
+
 export const getLocalSales = async () => {
   try {
     const sales = await db.getAllAsync('SELECT * FROM sales ORDER BY id DESC');
