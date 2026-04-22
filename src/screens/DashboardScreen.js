@@ -11,14 +11,93 @@ import {
   AlertDot, RowBetween, LoadingView,
 } from '../components/UIComponents';
 import {
-  getDashboardStatsOffline,
-  getSalesWeekOffline,
-  getLowStockOffline,
+  getLocalSales,
   getLocalProducts,
+  getLowStockOffline,
+  saveLowStockOffline,
+  getDashboardStatsOffline,
+  saveDashboardStatsOffline,
+  getSalesWeekOffline,
+  saveSalesWeekOffline,
 } from '../database/database';
 
 const { width } = Dimensions.get('window');
 const BAR_MAX_HEIGHT = 80;
+
+// Fonction pour calculer les statistiques à partir des ventes et produits
+const computeStatsFromLocalData = (sales, products) => {
+  const today = new Date().toISOString().split('T')[0];
+  const salesToday = sales
+    .filter(s => s.date === today)
+    .reduce((sum, s) => sum + (s.total || 0), 0);
+
+  // Croissance par rapport à hier
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  const salesYesterday = sales
+    .filter(s => s.date === yesterdayStr)
+    .reduce((sum, s) => sum + (s.total || 0), 0);
+  const growth = salesYesterday === 0 ? 0 : ((salesToday - salesYesterday) / salesYesterday) * 100;
+
+  const activeOrders = sales.filter(s => s.status === 'pending').length;
+  const lowStockCount = products.filter(p => (p.stock_quantity || 0) <= (p.min_stock || 0)).length;
+  const totalProducts = products.length;
+
+  const currentMonth = new Date().getMonth();
+  const currentYear = new Date().getFullYear();
+  const monthlyRevenue = sales
+    .filter(s => {
+      const d = new Date(s.date);
+      return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+    })
+    .reduce((sum, s) => sum + (s.total || 0), 0);
+
+  // Estimation simplifiée : bénéfice = 30% du CA, marge = 30%
+  const netProfit = monthlyRevenue * 0.3;
+  const grossMargin = monthlyRevenue === 0 ? 0 : (netProfit / monthlyRevenue) * 100;
+
+  return {
+    salesToday,
+    growth: Math.round(growth * 10) / 10,
+    activeOrders,
+    lowStockCount,
+    totalProducts,
+    monthlyRevenue,
+    netProfit,
+    grossMargin: Math.round(grossMargin),
+  };
+};
+
+const computeSalesWeek = (sales) => {
+  const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+  const today = new Date();
+  const startOfWeek = new Date(today);
+  startOfWeek.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
+  const weekDays = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startOfWeek);
+    d.setDate(startOfWeek.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    const total = sales
+      .filter(s => s.date === dateStr)
+      .reduce((sum, s) => sum + (s.total || 0), 0);
+    weekDays.push({ day: days[i], total });
+  }
+  return weekDays;
+};
+
+const computeLowStock = (products) => {
+  return products
+    .filter(p => (p.stock_quantity || 0) <= (p.min_stock || 0))
+    .map(p => ({
+      id: p.id,
+      name: p.name,
+      current: p.stock_quantity || 0,
+      min: p.min_stock || 0,
+      category: p.category,
+    }));
+};
 
 export default function DashboardScreen() {
   const [data, setData] = useState(null);
@@ -26,29 +105,48 @@ export default function DashboardScreen() {
 
   const loadData = useCallback(async () => {
     try {
-      const stats = await getDashboardStatsOffline();
-      const salesWeek = await getSalesWeekOffline();
-      const lowStock = await getLowStockOffline();
+      // 1. Récupérer les données locales
+      const sales = await getLocalSales();
       const products = await getLocalProducts();
 
-      setData({
-        stats: stats || {
-          salesToday: 0,
-          growth: 0,
-          activeOrders: 0,
-          lowStockCount: lowStock.length,
-          totalProducts: products.length,
-          monthlyRevenue: 0,
-          netProfit: 0,
-          grossMargin: 0,
-        },
-        salesWeek: salesWeek || [],
-        lowStock: lowStock || [],
-      });
+      // 2. Si aucune donnée, afficher des zéros
+      if (sales.length === 0 && products.length === 0) {
+        setData({
+          stats: {
+            salesToday: 0,
+            growth: 0,
+            activeOrders: 0,
+            lowStockCount: 0,
+            totalProducts: 0,
+            monthlyRevenue: 0,
+            netProfit: 0,
+            grossMargin: 0,
+          },
+          salesWeek: [],
+          lowStock: [],
+        });
+        return;
+      }
+
+      // 3. Calculer les statistiques à partir des données locales
+      const stats = computeStatsFromLocalData(sales, products);
+      const salesWeek = computeSalesWeek(sales);
+      const lowStock = computeLowStock(products);
+
+      // 4. Mettre à jour les caches pour la prochaine fois
+      await saveDashboardStatsOffline(stats);
+      await saveSalesWeekOffline(salesWeek);
+      await saveLowStockOffline(lowStock);
+
+      setData({ stats, salesWeek, lowStock });
     } catch (error) {
       console.error('Erreur chargement dashboard:', error);
+      // Fallback : tenter de lire le cache existant
+      const cachedStats = await getDashboardStatsOffline();
+      const cachedSalesWeek = await getSalesWeekOffline();
+      const cachedLowStock = await getLowStockOffline();
       setData({
-        stats: {
+        stats: cachedStats || {
           salesToday: 0,
           growth: 0,
           activeOrders: 0,
@@ -58,8 +156,8 @@ export default function DashboardScreen() {
           netProfit: 0,
           grossMargin: 0,
         },
-        salesWeek: [],
-        lowStock: [],
+        salesWeek: cachedSalesWeek || [],
+        lowStock: cachedLowStock || [],
       });
     }
   }, []);
