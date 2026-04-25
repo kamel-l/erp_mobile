@@ -1,191 +1,337 @@
+// src/screens/ClientsScreen.js
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert, ActivityIndicator, // ← ajout
+  View, Text, FlatList, StyleSheet, RefreshControl,
+  TouchableOpacity, Alert, ActivityIndicator, Modal,
+  TextInput, Dimensions, ScrollView,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { COLORS, formatDA } from '../services/theme';
 import {
-  Card, KpiCard, Badge, Avatar, SectionTitle, Divider,
-  RowBetween, ProgressBar, SearchBar,
+  Card, KpiCard, Badge, SearchBar, SectionTitle, Divider, RowBetween,
 } from '../components/UIComponents';
-import { getEmployeesOffline, saveEmployeesOffline } from '../database/offlineStorage';
+import { getLocalClients, saveClientsLocally, getLocalSales, getSaleWithItems } from '../database/database';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
-const DEFAULT_PAYROLL = [
-  { id: 1, name: 'Ali Mansouri', role: 'Responsable ventes', salary: 85000, initials: 'AM', bg: '#E3F2FD', tc: '#0D47A1' },
-  { id: 2, name: 'Fatima Bouzid', role: 'Comptable', salary: 75000, initials: 'FB', bg: '#F3E5F5', tc: '#4A148C' },
-  { id: 3, name: 'Yacine Djamel', role: 'Magasinier', salary: 55000, initials: 'YD', bg: '#FFF3E0', tc: '#E65100' },
-  { id: 4, name: 'Samira Rais', role: 'Administratrice', salary: 70000, initials: 'SR', bg: '#E8F5E9', tc: '#1B5E20' },
-  { id: 5, name: 'Kamel Mehdi', role: 'Commercial', salary: 65000, initials: 'KM', bg: '#FCE4EC', tc: '#880E4F' },
+const { width } = Dimensions.get('window');
+const CARD_WIDTH = (width - 48) / 2;
+
+const AVATAR_COLORS = [
+  '#6366F1', '#A855F7', '#EC4899', '#F59E0B', '#10B981',
+  '#3B82F6', '#EF4444', '#14B8A6', '#F97316', '#8B5CF6',
 ];
 
-export default function HRScreen() {
+// Composant de détail de facture (utilisé dans le modal)
+const InvoiceDetailModal = ({ visible, sale, onClose }) => {
+  if (!sale) return null;
+  const exportPDF = async () => {
+    const date = new Date(sale.date);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = String(date.getFullYear()).slice(-2);
+    const fileName = `${sale.client_name}_${day}${month}${year}.pdf`;
+
+    const html = `
+      <html>
+        <head><meta charset="utf-8"></head>
+        <body style="font-family: Arial, sans-serif; padding:20px;">
+          <h1>Facture ${sale.invoice}</h1>
+          <p>Client : ${sale.client_name}</p>
+          <p>Date : ${new Date(sale.date).toLocaleDateString('fr-FR')}</p>
+          <p>Total : ${formatDA(sale.total)}</p>
+          <hr/>
+          <h3>Articles</h3>
+          <ul>${sale.items?.map(i => `<li>${i.name} x ${i.quantity} = ${formatDA(i.total)}</li>`).join('')}</ul>
+        </body>
+      </html>
+    `;
+    const { uri } = await Print.printToFileAsync({ html });
+    await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: fileName });
+  };
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <RowBetween style={{ marginBottom: 12 }}>
+            <Text style={styles.modalTitle}>{sale.invoice}</Text>
+            <TouchableOpacity onPress={onClose}><Text style={styles.closeBtn}>✕</Text></TouchableOpacity>
+          </RowBetween>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Client :</Text><Text>{sale.client_name}</Text></View>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Date :</Text><Text>{new Date(sale.date).toLocaleDateString('fr-FR')}</Text></View>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Statut :</Text><Badge status={sale.status === 'paid' ? 'paid' : 'pending'} /></View>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Total TTC :</Text><Text style={{ fontWeight: 'bold', color: COLORS.primary }}>{formatDA(sale.total)}</Text></View>
+          <Text style={{ marginTop: 12, fontWeight: 'bold' }}>Articles</Text>
+          {sale.items?.map((item, idx) => (
+            <View key={idx} style={styles.itemRow}>
+              <Text style={{ flex: 2 }}>{item.name}</Text>
+              <Text style={{ flex: 1, textAlign: 'center' }}>x{item.quantity}</Text>
+              <Text style={{ flex: 1, textAlign: 'right' }}>{formatDA(item.total)}</Text>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.pdfBtn} onPress={exportPDF}>
+            <Text style={styles.pdfBtnText}>📄 Exporter PDF</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const ClientCard = ({ client, onPress }) => {
+  const initial = client.name ? client.name[0].toUpperCase() : '?';
+  const colorIndex = initial.charCodeAt(0) % AVATAR_COLORS.length;
+  const avatarColor = AVATAR_COLORS[colorIndex];
+
+  return (
+    <TouchableOpacity onPress={() => onPress(client)} activeOpacity={0.7}>
+      <View style={[styles.card, { borderLeftColor: avatarColor }]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
+            <Text style={styles.avatarText}>{initial}</Text>
+          </View>
+          <View style={styles.cardInfo}>
+            <Text style={styles.cardName} numberOfLines={1}>{client.name}</Text>
+            {client.phone ? <Text style={styles.cardPhone}>📞 {client.phone}</Text> : null}
+          </View>
+        </View>
+        <View style={styles.cardStats}>
+          <Text style={styles.cardStatLabel}>Ventes</Text>
+          <Text style={styles.cardStatValue}>{client.salesCount || 0}</Text>
+        </View>
+        <View style={styles.cardStats}>
+          <Text style={styles.cardStatLabel}>CA</Text>
+          <Text style={styles.cardStatValue}>{formatDA(client.totalAmount || 0)}</Text>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+export default function ClientsScreen() {
+  const navigation = useNavigation();
   const [search, setSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState('attendance');
-  const [employees, setEmployees] = useState([]);
+  const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selectedClient, setSelectedClient] = useState(null);
+  const [clientModalVisible, setClientModalVisible] = useState(false);
+  const [selectedSale, setSelectedSale] = useState(null);
+  const [invoiceModalVisible, setInvoiceModalVisible] = useState(false);
+  const [addModalVisible, setAddModalVisible] = useState(false);
+  const [newClientName, setNewClientName] = useState('');
 
-  const loadEmployees = useCallback(async () => {
+  const loadClients = useCallback(async () => {
     try {
-      const emps = await getEmployeesOffline();
-      if (emps && emps.length) {
-        setEmployees(emps);
-      } else {
-        const defaultEmps = DEFAULT_PAYROLL.map(e => ({
-          ...e,
-          status: 'present',
-          color: e.bg,
-          textColor: e.tc,
-        }));
-        setEmployees(defaultEmps);
-        await saveEmployeesOffline(defaultEmps);
-      }
+      const offlineClients = await getLocalClients();
+      const sales = await getLocalSales();
+      const clientsWithStats = offlineClients.map(c => {
+        const clientSales = sales.filter(s => s.client_id === c.id);
+        const totalAmount = clientSales.reduce((sum, s) => sum + (s.total || 0), 0);
+        return { ...c, salesCount: clientSales.length, totalAmount, sales: clientSales };
+      });
+      setClients(clientsWithStats);
     } catch (error) {
-      console.error(error);
-      setEmployees(DEFAULT_PAYROLL.map(e => ({ ...e, status: 'present' })));
+      console.error('Erreur chargement clients:', error);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { loadEmployees(); }, [loadEmployees]));
+  useFocusEffect(useCallback(() => { loadClients(); }, [loadClients]));
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadEmployees();
+    await loadClients();
     setRefreshing(false);
   };
 
-  const cycleStatus = (emp) => {
-    const statuses = ['present', 'absent', 'leave'];
-    const next = statuses[(statuses.indexOf(emp.status) + 1) % statuses.length];
-    const updated = employees.map(e => e.id === emp.id ? { ...e, status: next } : e);
-    setEmployees(updated);
-    saveEmployeesOffline(updated);
-  };
-
-  const filteredEmps = employees.filter(e =>
-    e.name.toLowerCase().includes(search.toLowerCase()) ||
-    e.role.toLowerCase().includes(search.toLowerCase())
+  const filteredClients = clients.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.phone && c.phone.includes(search)) ||
+    (c.email && c.email.toLowerCase().includes(search.toLowerCase()))
   );
 
-  const presentCount = employees.filter(e => e.status === 'present').length;
-  const absentCount = employees.filter(e => e.status === 'absent' || e.status === 'leave').length;
-  const totalPayroll = DEFAULT_PAYROLL.reduce((s, p) => s + p.salary, 0);
+  const openClientDetail = (client) => {
+    setSelectedClient(client);
+    setClientModalVisible(true);
+  };
+
+  const openSaleDetail = async (saleId) => {
+    const fullSale = await getSaleWithItems(saleId);
+    if (fullSale) {
+      setSelectedSale(fullSale);
+      setInvoiceModalVisible(true);
+    } else {
+      Alert.alert('Erreur', 'Impossible de charger les détails de la facture');
+    }
+  };
+
+  const addNewClient = async () => {
+    if (!newClientName.trim()) {
+      Alert.alert('Erreur', 'Veuillez saisir un nom');
+      return;
+    }
+    const newClient = {
+      id: Date.now(),
+      name: newClientName.trim(),
+      phone: '',
+      email: '',
+      address: '',
+      created_at: new Date().toISOString(),
+    };
+    const updated = [...clients, newClient];
+    await saveClientsLocally(updated);
+    await loadClients();
+    setAddModalVisible(false);
+    setNewClientName('');
+  };
+
+  const renderHeader = () => (
+    <>
+      <View style={styles.headerStats}>
+        <KpiCard value={clients.length} label="Total clients" color={COLORS.primary} />
+        <KpiCard value={clients.filter(c => c.salesCount > 0).length} label="Clients actifs" color={COLORS.success} />
+      </View>
+      <View style={styles.searchRow}>
+        <View style={{ flex: 1 }}>
+          <SearchBar value={search} onChangeText={setSearch} placeholder="Nom, téléphone, email..." />
+        </View>
+        <TouchableOpacity style={styles.addButton} onPress={() => setAddModalVisible(true)}>
+          <Text style={styles.addButtonText}>+</Text>
+        </TouchableOpacity>
+      </View>
+    </>
+  );
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' }}>
+      <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Chargement des clients...</Text>
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F5F5F5' }}>
-      <ScrollView
-        contentContainerStyle={styles.content}
+    <View style={styles.container}>
+      <FlatList
+        data={filteredClients}
+        keyExtractor={item => item.id.toString()}
+        numColumns={2}
+        columnWrapperStyle={styles.columnWrapper}
+        ListHeaderComponent={renderHeader}
+        renderItem={({ item }) => <ClientCard client={item} onPress={openClientDetail} />}
+        ListEmptyComponent={<Text style={styles.emptyText}>Aucun client trouvé</Text>}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.kpiRow}>
-          <KpiCard value={employees.length} label="Employés actifs" color={COLORS.primary} style={{ marginRight: 6 }} />
-          <KpiCard value={absentCount} label="Absents aujourd'hui" color={COLORS.warning} style={{ marginLeft: 6 }} />
-        </View>
+        contentContainerStyle={styles.content}
+      />
 
-        <SearchBar value={search} onChangeText={setSearch} placeholder="Chercher un employé..." />
-
-        <View style={styles.tabRow}>
-          {[{ key: 'attendance', label: 'Présences' }, { key: 'payroll', label: 'Salaires' }].map(t => (
+      {/* Modal de détail client */}
+      <Modal visible={clientModalVisible} animationType="slide" transparent onRequestClose={() => setClientModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <RowBetween style={{ marginBottom: 8 }}>
+              <Text style={styles.modalTitle}>👤 {selectedClient?.name}</Text>
+              <TouchableOpacity onPress={() => setClientModalVisible(false)}><Text style={styles.closeBtn}>✕</Text></TouchableOpacity>
+            </RowBetween>
+            {selectedClient?.phone ? <Text style={styles.clientInfo}>📞 {selectedClient.phone}</Text> : null}
+            {selectedClient?.email ? <Text style={styles.clientInfo}>✉️ {selectedClient.email}</Text> : null}
+            {selectedClient?.address ? <Text style={styles.clientInfo}>🏠 {selectedClient.address}</Text> : null}
+            <Divider />
+            <SectionTitle>📄 Factures</SectionTitle>
+            {selectedClient?.sales && selectedClient.sales.length > 0 ? (
+              selectedClient.sales.map(sale => (
+                <TouchableOpacity key={sale.id} style={styles.clientSaleItem} onPress={() => openSaleDetail(sale.id)}>
+                  <RowBetween>
+                    <Text style={styles.saleInvoice}>{sale.invoice}</Text>
+                    <Badge status={sale.status === 'paid' ? 'paid' : 'pending'} />
+                  </RowBetween>
+                  <RowBetween>
+                    <Text style={styles.saleDate}>{new Date(sale.date).toLocaleDateString('fr-FR')}</Text>
+                    <Text style={styles.saleTotal}>{formatDA(sale.total)}</Text>
+                  </RowBetween>
+                </TouchableOpacity>
+              ))
+            ) : (
+              <Text style={styles.emptyText}>Aucune facture pour ce client</Text>
+            )}
             <TouchableOpacity
-              key={t.key}
-              style={[styles.tab, tab === t.key && styles.tabActive]}
-              onPress={() => setTab(t.key)}
+              style={styles.newSaleBtn}
+              onPress={() => {
+                setClientModalVisible(false);
+                navigation.navigate('Ventes', { clientId: selectedClient?.id, clientName: selectedClient?.name });
+              }}
             >
-              <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+              <Text style={styles.newSaleBtnText}>➕ Nouvelle vente</Text>
             </TouchableOpacity>
-          ))}
+          </View>
         </View>
+      </Modal>
 
-        {tab === 'attendance' && (
-          <>
-            <SectionTitle>Présences — Aujourd'hui</SectionTitle>
-            <Card style={{ paddingVertical: 4 }}>
-              {filteredEmps.map((emp, i) => (
-                <View key={emp.id}>
-                  <TouchableOpacity style={styles.empRow} onPress={() => cycleStatus(emp)} activeOpacity={0.7}>
-                    <Avatar initials={emp.initials} bg={emp.color || '#E3F2FD'} textColor={emp.textColor || '#0D47A1'} />
-                    <View style={styles.empInfo}>
-                      <Text style={styles.empName}>{emp.name}</Text>
-                      <Text style={styles.empRole}>{emp.role}</Text>
-                    </View>
-                    <Badge status={emp.status} />
-                  </TouchableOpacity>
-                  {i < filteredEmps.length - 1 && <Divider />}
-                </View>
-              ))}
-              {filteredEmps.length === 0 && <Text style={styles.emptyText}>Aucun employé trouvé</Text>}
-            </Card>
-            <Card>
-              <RowBetween style={{ marginBottom: 6 }}>
-                <Text style={styles.statLabel}>Présents</Text>
-                <Text style={[styles.statValue, { color: COLORS.success }]}>{presentCount} / {employees.length}</Text>
-              </RowBetween>
-              <ProgressBar value={presentCount} max={employees.length} color={COLORS.success} />
-              <Text style={[styles.hintText, { marginTop: 8 }]}>Appuyer sur un employé pour changer son statut</Text>
-            </Card>
-          </>
-        )}
+      {/* Modal d'ajout client */}
+      <Modal visible={addModalVisible} animationType="fade" transparent onRequestClose={() => setAddModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Nouveau client</Text>
+            <TextInput style={styles.input} placeholder="Nom complet" value={newClientName} onChangeText={setNewClientName} />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setAddModalVisible(false)}><Text>Annuler</Text></TouchableOpacity>
+              <TouchableOpacity style={styles.modalConfirm} onPress={addNewClient}><Text>Ajouter</Text></TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
-        {tab === 'payroll' && (
-          <>
-            <SectionTitle>Masse salariale — {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</SectionTitle>
-            <Card>
-              <RowBetween><Text style={styles.statLabel}>Total mensuel</Text><Text style={[styles.statValue, { color: COLORS.primary }]}>{formatDA(totalPayroll)}</Text></RowBetween>
-              <Divider />
-              <RowBetween><Text style={styles.statLabel}>Charges sociales (~26%)</Text><Text style={[styles.statValue, { color: COLORS.warning }]}>{formatDA(Math.round(totalPayroll * 0.26))}</Text></RowBetween>
-              <Divider />
-              <RowBetween><Text style={[styles.statLabel, { fontWeight: '600' }]}>Coût total employeur</Text><Text style={[styles.statValue, { color: COLORS.danger, fontWeight: '600' }]}>{formatDA(Math.round(totalPayroll * 1.26))}</Text></RowBetween>
-            </Card>
-            <SectionTitle>Détail par employé</SectionTitle>
-            <Card style={{ paddingVertical: 4 }}>
-              {DEFAULT_PAYROLL.filter(p => p.name.toLowerCase().includes(search.toLowerCase())).map((p, i) => (
-                <View key={p.id}>
-                  <View style={styles.empRow}>
-                    <Avatar initials={p.initials} bg={p.bg} textColor={p.tc} />
-                    <View style={styles.empInfo}>
-                      <Text style={styles.empName}>{p.name}</Text>
-                      <Text style={styles.empRole}>{p.role}</Text>
-                    </View>
-                    <Text style={[styles.salaryText, { color: COLORS.primary }]}>{formatDA(p.salary)}</Text>
-                  </View>
-                  {i < DEFAULT_PAYROLL.length - 1 && <Divider />}
-                </View>
-              ))}
-            </Card>
-          </>
-        )}
-      </ScrollView>
+      {/* Modal détail facture (réutilisé) */}
+      <InvoiceDetailModal
+        visible={invoiceModalVisible}
+        sale={selectedSale}
+        onClose={() => setInvoiceModalVisible(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
   content: { padding: 14, paddingBottom: 24 },
-  kpiRow: { flexDirection: 'row', marginBottom: 12 },
-  tabRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  tab: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: '#fff', borderWidth: 0.5, borderColor: '#E0E0E0' },
-  tabActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  tabText: { fontSize: 13, fontWeight: '500', color: COLORS.textSecondary },
-  tabTextActive: { color: '#fff' },
-  empRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
-  empInfo: { flex: 1 },
-  empName: { fontSize: 14, fontWeight: '500', color: COLORS.text },
-  empRole: { fontSize: 12, color: COLORS.textSecondary },
-  salaryText: { fontSize: 14, fontWeight: '500' },
-  statLabel: { fontSize: 13, color: COLORS.text },
-  statValue: { fontSize: 14, fontWeight: '500', color: COLORS.text },
-  hintText: { fontSize: 11, color: COLORS.textSecondary, fontStyle: 'italic' },
-  emptyText: { textAlign: 'center', color: COLORS.textSecondary, padding: 20, fontSize: 14 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 20, fontSize: 16, color: COLORS.primary },
+  headerStats: { flexDirection: 'row', gap: 12, marginBottom: 16 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 },
+  addButton: { backgroundColor: COLORS.primary, width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', elevation: 3 },
+  addButtonText: { color: '#fff', fontSize: 24, fontWeight: 'bold', marginTop: -2 },
+  columnWrapper: { justifyContent: 'space-between', marginBottom: 12 },
+  card: { backgroundColor: '#fff', width: CARD_WIDTH, borderRadius: 12, padding: 12, borderLeftWidth: 4, elevation: 2, marginHorizontal: 0 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  avatar: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  avatarText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  cardInfo: { flex: 1 },
+  cardName: { fontSize: 14, fontWeight: '600', color: COLORS.text },
+  cardPhone: { fontSize: 11, color: COLORS.textSecondary, marginTop: 2 },
+  cardStats: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  cardStatLabel: { fontSize: 11, color: COLORS.textSecondary },
+  cardStatValue: { fontSize: 12, fontWeight: '600', color: COLORS.primary },
+  emptyText: { textAlign: 'center', color: COLORS.textSecondary, padding: 20 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalCard: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '85%', maxHeight: '80%' },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: COLORS.primary },
+  closeBtn: { fontSize: 24, color: COLORS.textSecondary, padding: 4 },
+  clientInfo: { fontSize: 13, color: COLORS.textSecondary, marginBottom: 4 },
+  clientSaleItem: { paddingVertical: 8, borderBottomWidth: 0.5, borderBottomColor: '#E0E0E0' },
+  saleInvoice: { fontSize: 13, fontWeight: '500', color: COLORS.text },
+  saleDate: { fontSize: 11, color: COLORS.textSecondary },
+  saleTotal: { fontSize: 13, fontWeight: '600', color: COLORS.primary },
+  newSaleBtn: { backgroundColor: COLORS.success, borderRadius: 8, padding: 10, alignItems: 'center', marginTop: 12 },
+  newSaleBtnText: { color: '#fff', fontWeight: 'bold' },
+  input: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 10, marginBottom: 12, width: '100%' },
+  modalButtons: { flexDirection: 'row', justifyContent: 'space-around' },
+  modalCancel: { padding: 10, backgroundColor: '#eee', borderRadius: 8, flex: 1, marginRight: 8, alignItems: 'center' },
+  modalConfirm: { padding: 10, backgroundColor: COLORS.primary, borderRadius: 8, flex: 1, marginLeft: 8, alignItems: 'center' },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 0.5, borderBottomColor: '#E0E0E0' },
+  detailLabel: { fontWeight: 'bold', color: COLORS.textSecondary },
+  itemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  pdfBtn: { marginTop: 16, backgroundColor: COLORS.primary, borderRadius: 8, padding: 10, alignItems: 'center' },
+  pdfBtnText: { color: '#fff', fontWeight: '500' },
 });

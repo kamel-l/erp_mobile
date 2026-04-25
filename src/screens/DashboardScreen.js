@@ -1,8 +1,8 @@
-// src/screens/DashboardScreen.js
+// src/screens/DashboardScreen.js (version complète corrigée)
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  Dimensions,
+  Dimensions, TouchableOpacity, Modal, FlatList, Alert, TextInput,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, formatDA } from '../services/theme';
@@ -24,14 +24,13 @@ import {
 const { width } = Dimensions.get('window');
 const BAR_MAX_HEIGHT = 80;
 
-// Fonction pour calculer les statistiques à partir des ventes et produits
+// === Fonctions de calcul (inchangées) ===
 const computeStatsFromLocalData = (sales, products) => {
   const today = new Date().toISOString().split('T')[0];
   const salesToday = sales
     .filter(s => s.date === today)
     .reduce((sum, s) => sum + (s.total || 0), 0);
 
-  // Croissance par rapport à hier
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split('T')[0];
@@ -53,7 +52,6 @@ const computeStatsFromLocalData = (sales, products) => {
     })
     .reduce((sum, s) => sum + (s.total || 0), 0);
 
-  // Estimation simplifiée : bénéfice = 30% du CA, marge = 30%
   const netProfit = monthlyRevenue * 0.3;
   const grossMargin = monthlyRevenue === 0 ? 0 : (netProfit / monthlyRevenue) * 100;
 
@@ -70,46 +68,162 @@ const computeStatsFromLocalData = (sales, products) => {
 };
 
 const computeSalesWeek = (sales) => {
-  const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-  const today = new Date();
-  const startOfWeek = new Date(today);
-  startOfWeek.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
-  const weekDays = [];
+  const end = new Date();
+  const start = new Date();
+  start.setDate(start.getDate() - 6);
+
+  const daysMap = new Map();
   for (let i = 0; i < 7; i++) {
-    const d = new Date(startOfWeek);
-    d.setDate(startOfWeek.getDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
-    const total = sales
-      .filter(s => s.date === dateStr)
-      .reduce((sum, s) => sum + (s.total || 0), 0);
-    weekDays.push({ day: days[i], total });
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const key = d.toISOString().split('T')[0];
+    daysMap.set(key, 0);
   }
-  return weekDays;
+
+  sales.forEach(s => {
+    if (s.date >= start.toISOString().split('T')[0] && s.date <= end.toISOString().split('T')[0]) {
+      daysMap.set(s.date, (daysMap.get(s.date) || 0) + (s.total || 0));
+    }
+  });
+
+  return Array.from(daysMap.entries()).map(([date, total]) => ({
+    date,
+    day: new Date(date).toLocaleDateString('fr-FR', { weekday: 'short' }),
+    total,
+  }));
 };
 
 const computeLowStock = (products) => {
+  const LIMIT = 3;
   return products
     .filter(p => (p.stock_quantity || 0) <= (p.min_stock || 0))
-    .map(p => ({
-      id: p.id,
-      name: p.name,
-      current: p.stock_quantity || 0,
-      min: p.min_stock || 0,
-      category: p.category,
-    }));
+    .sort((a, b) => (a.stock_quantity || 0) - (b.stock_quantity || 0))
+    .slice(0, LIMIT);
 };
 
+// === Composant de sélection de période ===
+const PeriodSelector = ({ visible, onClose, onSelect }) => {
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [selected, setSelected] = useState('year');
+
+  const periods = [
+    { key: 'year', label: 'Cette année' },
+    { key: 'month', label: 'Ce mois' },
+    { key: 'week', label: 'Cette semaine' },
+    { key: 'all', label: 'Toutes' },
+  ];
+
+  const handleSelect = () => {
+    if (selected === 'custom') {
+      if (!customStart || !customEnd) {
+        Alert.alert('Erreur', 'Veuillez saisir les dates (AAAA-MM-JJ)');
+        return;
+      }
+      onSelect({ start: customStart, end: customEnd });
+    } else {
+      onSelect(selected);
+    }
+    onClose();
+  };
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>Période - Top Clients</Text>
+          {periods.map(p => (
+            <TouchableOpacity
+              key={p.key}
+              style={[styles.periodOption, selected === p.key && styles.periodOptionActive]}
+              onPress={() => setSelected(p.key)}
+            >
+              <Text style={[styles.periodText, selected === p.key && { color: '#fff' }]}>{p.label}</Text>
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={[styles.periodOption, selected === 'custom' && styles.periodOptionActive]}
+            onPress={() => setSelected('custom')}
+          >
+            <Text style={styles.periodText}>Personnalisée</Text>
+          </TouchableOpacity>
+          {selected === 'custom' && (
+            <View style={{ marginTop: 8 }}>
+              <TextInput
+                style={styles.dateInput}
+                placeholder="Début (AAAA-MM-JJ)"
+                value={customStart}
+                onChangeText={setCustomStart}
+              />
+              <TextInput
+                style={styles.dateInput}
+                placeholder="Fin (AAAA-MM-JJ)"
+                value={customEnd}
+                onChangeText={setCustomEnd}
+              />
+            </View>
+          )}
+          <View style={styles.modalButtons}>
+            <TouchableOpacity style={styles.modalCancel} onPress={onClose}>
+              <Text style={styles.modalCancelText}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalConfirm} onPress={handleSelect}>
+              <Text style={styles.modalConfirmText}>Appliquer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// === Composant détail facture ===
+const InvoiceDetailModal = ({ visible, sale, onClose }) => {
+  if (!sale) return null;
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <RowBetween>
+            <Text style={styles.modalTitle}>{sale.invoice}</Text>
+            <TouchableOpacity onPress={onClose}><Text style={styles.closeBtn}>✕</Text></TouchableOpacity>
+          </RowBetween>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Client :</Text><Text>{sale.client_name}</Text></View>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Date :</Text><Text>{sale.date}</Text></View>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Total TTC :</Text><Text style={{ color: COLORS.primary, fontWeight: 'bold' }}>{formatDA(sale.total)}</Text></View>
+          <View style={styles.detailRow}><Text style={styles.detailLabel}>Statut :</Text><Badge status={sale.status === 'paid' ? 'paid' : 'pending'} /></View>
+          <Text style={{ marginTop: 12, fontWeight: 'bold' }}>Articles :</Text>
+          {sale.items && sale.items.map((item, idx) => (
+            <View key={idx} style={styles.itemRow}>
+              <Text>{item.name} x{item.quantity}</Text>
+              <Text>{formatDA(item.total)}</Text>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.pdfBtn} onPress={() => Alert.alert('Export', 'Fonctionnalité à venir')}>
+            <Text style={styles.pdfBtnText}>📄 Exporter PDF</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// === Composant principal ===
 export default function DashboardScreen() {
   const [data, setData] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [periodModalVisible, setPeriodModalVisible] = useState(false);
+  const [topClients, setTopClients] = useState([]);
+  const [lastInvoices, setLastInvoices] = useState([]);
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+  const [invoiceModalVisible, setInvoiceModalVisible] = useState(false);
 
+  // Chargement des données principales (corrigé)
   const loadData = useCallback(async () => {
     try {
-      // 1. Récupérer les données locales
       const sales = await getLocalSales();
       const products = await getLocalProducts();
 
-      // 2. Si aucune donnée, afficher des zéros
       if (sales.length === 0 && products.length === 0) {
         setData({
           stats: {
@@ -128,12 +242,11 @@ export default function DashboardScreen() {
         return;
       }
 
-      // 3. Calculer les statistiques à partir des données locales
       const stats = computeStatsFromLocalData(sales, products);
       const salesWeek = computeSalesWeek(sales);
       const lowStock = computeLowStock(products);
 
-      // 4. Mettre à jour les caches pour la prochaine fois
+      // Sauvegarde en cache
       await saveDashboardStatsOffline(stats);
       await saveSalesWeekOffline(salesWeek);
       await saveLowStockOffline(lowStock);
@@ -141,7 +254,7 @@ export default function DashboardScreen() {
       setData({ stats, salesWeek, lowStock });
     } catch (error) {
       console.error('Erreur chargement dashboard:', error);
-      // Fallback : tenter de lire le cache existant
+      // Fallback : lecture du cache
       const cachedStats = await getDashboardStatsOffline();
       const cachedSalesWeek = await getSalesWeekOffline();
       const cachedLowStock = await getLowStockOffline();
@@ -162,19 +275,77 @@ export default function DashboardScreen() {
     }
   }, []);
 
+  const loadTopClients = useCallback(async (period = 'year', customDates = null) => {
+    try {
+      const sales = await getLocalSales();
+      let startDate, endDate;
+      const today = new Date();
+      if (customDates) {
+        startDate = customDates.start;
+        endDate = customDates.end;
+      } else if (period === 'year') {
+        startDate = new Date(today.getFullYear(), 0, 1).toISOString().split('T')[0];
+        endDate = today.toISOString().split('T')[0];
+      } else if (period === 'month') {
+        startDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+        endDate = today.toISOString().split('T')[0];
+      } else if (period === 'week') {
+        const start = new Date(today);
+        start.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1));
+        startDate = start.toISOString().split('T')[0];
+        endDate = today.toISOString().split('T')[0];
+      } else {
+        startDate = null;
+        endDate = null;
+      }
+
+      const filtered = sales.filter(s => {
+        if (!startDate || !endDate) return true;
+        return s.date >= startDate && s.date <= endDate;
+      });
+
+      const clientMap = new Map();
+      filtered.forEach(s => {
+        const id = s.client_id;
+        if (!id) return;
+        if (!clientMap.has(id)) {
+          clientMap.set(id, { name: s.client_name, total: 0, count: 0 });
+        }
+        const c = clientMap.get(id);
+        c.total += s.total;
+        c.count += 1;
+      });
+      const sorted = Array.from(clientMap.values())
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 5);
+      setTopClients(sorted);
+    } catch (error) {
+      console.error(error);
+    }
+  }, []);
+
+  const loadLastInvoices = useCallback(async () => {
+    try {
+      const sales = await getLocalSales();
+      setLastInvoices(sales.slice(0, 10));
+    } catch (error) {
+      console.error(error);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [loadData])
+      loadTopClients();
+      loadLastInvoices();
+    }, [])
   );
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
 
   const onRefresh = async () => {
     setRefreshing(true);
     await loadData();
+    await loadTopClients();
+    await loadLastInvoices();
     setRefreshing(false);
   };
 
@@ -187,7 +358,6 @@ export default function DashboardScreen() {
       style={styles.container}
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}
-      showsVerticalScrollIndicator={false}
     >
       <SectionTitle>Résumé du jour</SectionTitle>
 
@@ -224,27 +394,6 @@ export default function DashboardScreen() {
         </>
       )}
 
-      <SectionTitle>Alertes</SectionTitle>
-      <Card>
-        {data.lowStock.length > 0 ? (
-          data.lowStock.slice(0, 3).map((item, idx) => (
-            <View key={item.id || idx}>
-              <View style={styles.alertRow}>
-                <AlertDot color={COLORS.danger} />
-                <Text style={styles.alertText}>Stock critique : {item.name}</Text>
-                <Badge status="critical" customLabel={`${item.current}/${item.min}`} />
-              </View>
-              {idx < Math.min(data.lowStock.length, 3) - 1 && <Divider />}
-            </View>
-          ))
-        ) : (
-          <View style={styles.alertRow}>
-            <AlertDot color={COLORS.success} />
-            <Text style={styles.alertText}>Aucune alerte pour le moment</Text>
-          </View>
-        )}
-      </Card>
-
       <SectionTitle>Indicateurs mensuels</SectionTitle>
       <Card>
         <RowBetween>
@@ -267,6 +416,73 @@ export default function DashboardScreen() {
           <Text style={styles.statValue}>{data.stats.totalProducts}</Text>
         </RowBetween>
       </Card>
+
+      {/* Top Clients avec sélecteur de période */}
+      <View style={styles.sectionHeader}>
+        <SectionTitle>🏆 Top Clients</SectionTitle>
+        <TouchableOpacity onPress={() => setPeriodModalVisible(true)} style={styles.periodBtn}>
+          <Text style={styles.periodBtnText}>📅 Période</Text>
+        </TouchableOpacity>
+      </View>
+      <Card>
+        {topClients.map((c, idx) => (
+          <View key={idx} style={styles.clientRow}>
+            <Text style={styles.clientRank}>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}️⃣`}</Text>
+            <Text style={styles.clientName}>{c.name}</Text>
+            <Text style={styles.clientTotal}>{formatDA(c.total)}</Text>
+            <Text style={styles.clientCount}>({c.count})</Text>
+          </View>
+        ))}
+        {topClients.length === 0 && <Text style={styles.emptyText}>Aucune vente sur cette période</Text>}
+      </Card>
+
+      {/* Dernières factures */}
+      <SectionTitle>🧾 Dernières factures</SectionTitle>
+      <Card>
+        {lastInvoices.map((sale, idx) => (
+          <TouchableOpacity key={sale.id} onPress={() => { setSelectedInvoice(sale); setInvoiceModalVisible(true); }}>
+            <View style={styles.invoiceRow}>
+              <Text style={styles.invoiceNum}>{sale.invoice}</Text>
+              <Text style={styles.invoiceClient}>{sale.client_name}</Text>
+              <Text style={styles.invoiceTotal}>{formatDA(sale.total)}</Text>
+              <Badge status={sale.status === 'paid' ? 'paid' : 'pending'} />
+            </View>
+            {idx < lastInvoices.length - 1 && <Divider />}
+          </TouchableOpacity>
+        ))}
+        {lastInvoices.length === 0 && <Text style={styles.emptyText}>Aucune facture</Text>}
+      </Card>
+
+      {/* Alertes stock faible */}
+      <SectionTitle>⚠️ Alertes stock faible</SectionTitle>
+      <Card>
+        {data.lowStock.length > 0 ? (
+          data.lowStock.map((item, idx) => (
+            <View key={idx} style={styles.alertRow}>
+              <AlertDot color={item.current === 0 ? COLORS.danger : COLORS.warning} />
+              <Text style={styles.alertText}>{item.name}</Text>
+              <Badge status="critical" customLabel={`${item.current}/${item.min}`} />
+            </View>
+          ))
+        ) : (
+          <Text style={styles.emptyText}>Aucune alerte</Text>
+        )}
+      </Card>
+
+      <PeriodSelector
+        visible={periodModalVisible}
+        onClose={() => setPeriodModalVisible(false)}
+        onSelect={(period) => {
+          if (typeof period === 'string') loadTopClients(period);
+          else loadTopClients('custom', period);
+        }}
+      />
+
+      <InvoiceDetailModal
+        visible={invoiceModalVisible}
+        sale={selectedInvoice}
+        onClose={() => setInvoiceModalVisible(false)}
+      />
     </ScrollView>
   );
 }
@@ -288,4 +504,30 @@ const styles = StyleSheet.create({
   alertText: { flex: 1, fontSize: 13, color: COLORS.text },
   statLabel: { fontSize: 13, color: COLORS.text },
   statValue: { fontSize: 14, fontWeight: '500', color: COLORS.text },
+  // Nouveaux styles
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 8 },
+  periodBtn: { backgroundColor: COLORS.primaryLight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
+  periodBtnText: { color: COLORS.primaryDark, fontWeight: '500', fontSize: 12 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalCard: { backgroundColor: '#fff', borderRadius: 16, padding: 20, width: '80%' },
+  periodOption: { paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, marginBottom: 8, backgroundColor: '#f0f0f0' },
+  periodOptionActive: { backgroundColor: COLORS.primary },
+  periodText: { fontSize: 14 },
+  dateInput: { borderWidth: 1, borderColor: '#ccc', borderRadius: 8, padding: 8, marginBottom: 8 },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
+  detailLabel: { fontWeight: 'bold', color: COLORS.textSecondary },
+  itemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  closeBtn: { fontSize: 20, color: COLORS.textSecondary, padding: 4 },
+  clientRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  clientRank: { fontSize: 20, width: 40 },
+  clientName: { flex: 1, fontSize: 14, fontWeight: '500' },
+  clientTotal: { fontSize: 14, fontWeight: 'bold', color: COLORS.primary, marginRight: 8 },
+  clientCount: { fontSize: 12, color: COLORS.textSecondary },
+  invoiceRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 8 },
+  invoiceNum: { flex: 1, fontSize: 12, fontWeight: '500' },
+  invoiceClient: { flex: 1.5, fontSize: 12 },
+  invoiceTotal: { fontSize: 12, fontWeight: 'bold', color: COLORS.primary, width: 80, textAlign: 'right' },
+  pdfBtn: { marginTop: 16, backgroundColor: COLORS.primary, borderRadius: 8, padding: 12, alignItems: 'center' },
+  pdfBtnText: { color: '#fff', fontWeight: '500' },
+  emptyText: { textAlign: 'center', color: COLORS.textSecondary, padding: 20, fontSize: 14 },
 });

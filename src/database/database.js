@@ -51,6 +51,23 @@ export const initDatabase = async () => {
         FOREIGN KEY (client_id) REFERENCES clients(id)
       );
     `);
+    // Migration : ajouter les colonnes manquantes à la table sales
+    const tableInfo = await db.getAllAsync("PRAGMA table_info(sales)");
+    const existingColumns = tableInfo.map(col => col.name);
+
+    const columnsToAdd = {
+      tva_applied: "INTEGER DEFAULT 1",
+      payment_method: "TEXT",
+      synced: "INTEGER DEFAULT 0",
+      server_id: "INTEGER"
+    };
+
+    for (const [col, type] of Object.entries(columnsToAdd)) {
+      if (!existingColumns.includes(col)) {
+        await db.execAsync(`ALTER TABLE sales ADD COLUMN ${col} ${type}`);
+        console.log(`✅ Colonne ${col} ajoutée à sales`);
+      }
+    }
 
     // Table items de vente
     await db.execAsync(`
@@ -671,6 +688,75 @@ export const getNextInvoiceNumber = async () => {
   const newNumber = (row?.last_number || 999) + 1;
   await db.runAsync('UPDATE invoice_counter SET last_number = ? WHERE id = 1', newNumber);
   return newNumber;
+};
+
+// src/database/database.js (ajouter à la fin du fichier)
+
+/**
+ * Importe une vente depuis un fichier .DAT (format paramètres URL)
+ * - Crée ou récupère le client
+ * - Pour chaque article : recherche ou crée le produit, incrémente le stock
+ * - Enregistre la vente avec les items (sans décrémenter le stock)
+ * - Ne passe pas par la file d'attente de synchronisation
+ */
+export const importSaleFromDAT = async (saleData, itemsData) => {
+  await db.execAsync('BEGIN TRANSACTION');
+  try {
+    // 1. Générer un numéro de facture unique
+    const invoiceNumber = saleData.invoice_number || `IMP-${Date.now()}`;
+
+    // 2. Insérer la vente (synced = 1 pour ne pas la synchroniser)
+    const result = await db.runAsync(
+      `INSERT INTO sales (invoice, client_id, client_name, total, status, date, tva_applied, payment_method, synced, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      invoiceNumber,
+      saleData.client_id || null,
+      saleData.client_name,
+      saleData.total,
+      saleData.status || 'paid',
+      saleData.date || new Date().toISOString().split('T')[0],
+      saleData.tva_applied ? 1 : 0,
+      saleData.payment_method || 'cash',
+      1, // synced = 1 (ne pas mettre en file d'attente)
+      new Date().toISOString()
+    );
+    const saleId = result.lastInsertRowId;
+
+    // 3. Insérer les items et mettre à jour le stock (incrémentation)
+    for (const item of itemsData) {
+      await db.runAsync(
+        `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        saleId,
+        item.product_id || null,
+        item.barcode,
+        item.name,
+        item.quantity,
+        item.unit_price,
+        item.total,
+        1
+      );
+
+      // Incrémenter le stock du produit (car import = ajout au stock)
+      if (item.product_id) {
+        await db.runAsync(
+          `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+          item.quantity, item.product_id
+        );
+      } else if (item.barcode) {
+        await db.runAsync(
+          `UPDATE products SET stock_quantity = stock_quantity + ? WHERE barcode = ?`,
+          item.quantity, item.barcode
+        );
+      }
+    }
+
+    await db.execAsync('COMMIT');
+    return saleId;
+  } catch (error) {
+    await db.execAsync('ROLLBACK');
+    throw error;
+  }
 };
 
 // Initialiser la base au démarrage de l'app
