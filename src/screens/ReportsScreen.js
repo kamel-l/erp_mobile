@@ -11,7 +11,8 @@ import { COLORS, formatDA } from '../services/theme';
 import {
   Card, KpiCard, SectionTitle, Divider, RowBetween, ProgressBar,
 } from '../components/UIComponents';
-import { getLocalSales, getLocalProducts, getLocalClients } from '../database/database';
+import { getLocalProducts, getLocalClients } from '../database/database';
+import { getLocalSales } from '../database/salesRepository';
 
 export default function ReportsScreen() {
   const [refreshing, setRefreshing] = useState(false);

@@ -1,4 +1,3 @@
-// src/screens/LoginScreen.js
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
@@ -6,10 +5,10 @@ import {
   Alert, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { COLORS } from '../services/theme';
-import { authAPI } from '../services/api';
-import { getUserByUsername, setCurrentUser } from '../database/database';
+import { useAuth } from '../context/AuthContext';
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen() {
+  const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -20,16 +19,19 @@ export default function LoginScreen({ navigation }) {
       Alert.alert('Erreur', 'Veuillez remplir tous les champs.');
       return;
     }
-    setLoading(true);
-    // Mode offline uniquement (pas d'appel API)
-    if (username === 'admin' && password === 'admin123') {
-      navigation.replace('Main');
-    } else {
-      Alert.alert('Connexion échouée', 'Identifiant ou mot de passe incorrect.');
-    }
-    setLoading(false);
-  };
 
+    setLoading(true);
+    try {
+      const result = await login(username.trim(), password);
+      if (!result.success) {
+        Alert.alert('Connexion echouee', result.error || 'Identifiant ou mot de passe incorrect.');
+      }
+    } catch {
+      Alert.alert('Connexion echouee', 'Impossible de se connecter pour le moment.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <KeyboardAvoidingView
@@ -42,7 +44,7 @@ export default function LoginScreen({ navigation }) {
             <Text style={styles.logoText}>ERP</Text>
           </View>
           <Text style={styles.appName}>DAR ELSSALEM</Text>
-          <Text style={styles.appSubtitle}>Système de Gestion ERP</Text>
+          <Text style={styles.appSubtitle}>Systeme de Gestion ERP</Text>
         </View>
 
         <View style={styles.form}>
@@ -78,7 +80,7 @@ export default function LoginScreen({ navigation }) {
                 autoCapitalize="none"
               />
               <TouchableOpacity onPress={() => setShowPass(!showPass)} style={styles.eyeBtn}>
-                <Text style={styles.inputIcon}>{showPass ? '👁' : '👁'}</Text>
+                <Text style={styles.inputIcon}>👁</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -97,7 +99,7 @@ export default function LoginScreen({ navigation }) {
           </TouchableOpacity>
 
           <View style={styles.hint}>
-            <Text style={styles.hintText}>Compte admin par défaut : admin / admin123</Text>
+            <Text style={styles.hintText}>Compte admin par defaut : admin / admin123</Text>
           </View>
         </View>
 

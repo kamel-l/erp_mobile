@@ -1,6 +1,7 @@
 // src/database/database.js
 import * as SQLite from 'expo-sqlite';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { initInvoiceCounter as initSalesInvoiceCounter } from './salesRepository';
 
 // Ouvrir (ou créer) la base de données
 const db = SQLite.openDatabaseSync('erp.db');
@@ -215,107 +216,6 @@ export const updateProductStock = async (productId, newStock) => {
 
 // ========== VENTES ==========
 // Extrait de database.js - fonction saveSaleLocally corrigée
-export const saveSaleLocally = async (sale, items) => {
-  try {
-    // 1. Insérer la vente
-    const result = await db.runAsync(
-      `INSERT INTO sales (invoice, client_id, client_name, total, status, date, synced, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      sale.invoice, sale.client_id || null, sale.client_name, sale.total,
-      sale.status || 'pending', sale.date || new Date().toISOString().split('T')[0], 0, new Date().toISOString()
-    );
-    const saleId = result.lastInsertRowId;
-
-    // 2. Insérer les items et mettre à jour le stock
-    for (const item of items) {
-      // Insérer l'item
-      await db.runAsync(
-        `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        saleId, item.product_id || null, item.barcode, item.name, item.quantity,
-        item.unit_price, item.total, 0
-      );
-
-      // Mettre à jour le stock du produit
-      if (item.product_id) {
-        await db.runAsync(
-          `UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?`,
-          item.quantity, item.product_id
-        );
-      } else if (item.barcode) {
-        await db.runAsync(
-          `UPDATE products SET stock_quantity = stock_quantity - ? WHERE barcode = ?`,
-          item.quantity, item.barcode
-        );
-      }
-    }
-
-    // 3. Ajouter à pending sync
-    await addToPendingSync('sale', saleId, { sale, items });
-
-    return saleId;
-  } catch (error) {
-    console.error('Erreur saveSaleLocally:', error);
-    return null;
-  }
-};
-
-// Dans database.js, remplacez getLocalSales par :
-export const saveSalesOffline = async (sales) => {
-  try {
-    await db.execAsync('DELETE FROM sales');
-    await db.execAsync('DELETE FROM sale_items');
-    for (const sale of sales) {
-      const result = await db.runAsync(
-        `INSERT INTO sales (id, invoice, client_id, client_name, total, status, date, synced, server_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        sale.id, sale.invoice, sale.client_id || null, sale.client_name, sale.total,
-        sale.status || 'completed', sale.date, 1, sale.id, sale.created_at || new Date().toISOString()
-      );
-      if (sale.items && Array.isArray(sale.items)) {
-        for (const item of sale.items) {
-          await db.runAsync(
-            `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            sale.id, item.product_id || null, item.barcode, item.name, item.quantity,
-            item.unit_price, item.total, 1
-          );
-        }
-      }
-    }
-  } catch (error) {
-    console.error('Erreur saveSalesOffline:', error);
-  }
-};
-
-export const getLocalSales = async () => {
-  try {
-    const sales = await db.getAllAsync('SELECT * FROM sales ORDER BY id DESC');
-    for (const sale of sales) {
-      // Convertir explicitement l'ID en nombre
-      const saleId = Number(sale.id);
-      const items = await db.getAllAsync('SELECT * FROM sale_items WHERE sale_id = ?', saleId);
-      sale.items = items;
-    }
-    return sales;
-  } catch (error) {
-    console.error('Erreur getLocalSales:', error);
-    return [];
-  }
-};
-
-export const getSaleWithItems = async (saleId) => {
-  try {
-    const sale = await db.getFirstAsync('SELECT * FROM sales WHERE id = ?', saleId);
-    if (!sale) return null;
-    const items = await db.getAllAsync('SELECT * FROM sale_items WHERE sale_id = ?', saleId);
-    sale.items = items;
-    return sale;
-  } catch (error) {
-    console.error('Erreur getSaleWithItems:', error);
-    return null;
-  }
-};
 
 // ========== CLIENTS ==========
 export const saveClientsLocally = async (clients) => {
@@ -345,44 +245,6 @@ export const getLocalClients = async () => {
 };
 
 // ========== SYNC ==========
-export const addToPendingSync = async (type, recordId, data) => {
-  try {
-    await db.runAsync(
-      `INSERT INTO pending_actions (type, data, created_at)
-       VALUES (?, ?, ?)`,
-      type, JSON.stringify({ recordId, data }), new Date().toISOString()
-    );
-  } catch (error) {
-    console.error('Erreur addToPendingSync:', error);
-  }
-};
-
-export const getPendingSync = async () => {
-  try {
-    return await db.getAllAsync('SELECT * FROM pending_actions ORDER BY id');
-  } catch (error) {
-    console.error('Erreur getPendingSync:', error);
-    return [];
-  }
-};
-
-export const removeFromPendingSync = async (syncId) => {
-  try {
-    await db.runAsync('DELETE FROM pending_actions WHERE id = ?', syncId);
-  } catch (error) {
-    console.error('Erreur removeFromPendingSync:', error);
-  }
-};
-
-export const markSaleAsSynced = async (saleId, serverId) => {
-  try {
-    await db.runAsync('UPDATE sales SET synced = 1, server_id = ? WHERE id = ?', serverId, saleId);
-    await db.runAsync('UPDATE sale_items SET synced = 1 WHERE sale_id = ?', saleId);
-  } catch (error) {
-    console.error('Erreur markSaleAsSynced:', error);
-  }
-};
-
 export const setLastSyncTime = async () => {
   try {
     await db.runAsync(
@@ -550,7 +412,7 @@ export const clearAllData = async () => {
       }
     }
     await db.runAsync('DELETE FROM invoice_counter');
-    await initInvoiceCounter(); // pour recréer avec 999
+    await initSalesInvoiceCounter(); // pour recréer avec 999
     // Recréer l'utilisateur admin par défaut
     await db.runAsync(
       `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
@@ -653,43 +515,6 @@ export const clearCurrentUser = async () => {
   await AsyncStorage.removeItem('@erp_current_user');
 };
 
-export const updateSaleStatus = async (saleId, newStatus) => {
-  try {
-    await db.runAsync('UPDATE sales SET status = ? WHERE id = ?', newStatus, saleId);
-    return true;
-  } catch (error) {
-    console.error('Erreur updateSaleStatus:', error);
-    return false;
-  }
-};
-
-// Initialisation du compteur de factures
-export const initInvoiceCounter = async () => {
-  try {
-    await db.execAsync(`
-      CREATE TABLE IF NOT EXISTS invoice_counter (
-        id INTEGER PRIMARY KEY CHECK (id = 1),
-        last_number INTEGER DEFAULT 999
-      );
-    `);
-    const row = await db.getFirstAsync('SELECT last_number FROM invoice_counter WHERE id = 1');
-    if (!row) {
-      await db.runAsync('INSERT INTO invoice_counter (id, last_number) VALUES (1, 999)');
-    }
-  } catch (error) {
-    console.error('Erreur initInvoiceCounter:', error);
-  }
-};
-
-// Obtenir le prochain numéro de facture
-export const getNextInvoiceNumber = async () => {
-  await initInvoiceCounter();
-  const row = await db.getFirstAsync('SELECT last_number FROM invoice_counter WHERE id = 1');
-  const newNumber = (row?.last_number || 999) + 1;
-  await db.runAsync('UPDATE invoice_counter SET last_number = ? WHERE id = 1', newNumber);
-  return newNumber;
-};
-
 // src/database/database.js (ajouter à la fin du fichier)
 
 /**
@@ -760,4 +585,3 @@ export const importSaleFromDAT = async (saleData, itemsData) => {
 };
 
 // Initialiser la base au démarrage de l'app
-initDatabase();

@@ -7,7 +7,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { COLORS, formatDA } from '../services/theme';
 import { Card, Badge, RowBetween, Divider } from '../components/UIComponents';
-import { getSaleWithItems, updateSaleStatus } from '../database/database';
+import { getSaleWithItems, updateSaleStatus } from '../database/salesRepository';
 
 export default function SaleDetailScreen({ route, navigation }) {
     const { saleId } = route.params;

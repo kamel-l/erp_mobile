@@ -1,4 +1,3 @@
-// src/screens/modals/NewSaleModal.js
 import React, { useState, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity,
@@ -9,12 +8,11 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS, formatDA } from '../../services/theme';
 import {
   getLocalProducts,
-  saveSaleLocally,
   getLocalClients,
   saveClientsLocally,
   getProductByBarcode,
-  getNextInvoiceNumber,
 } from '../../database/database';
+import { calculateSaleTotals, savePreparedSale, validateSaleDraft } from '../../services/salesService';
 
 export default function NewSaleModal({ visible, onClose, onSaved, initialClient }) {
   const [client, setClient] = useState(null);
@@ -40,8 +38,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     if (visible) {
       loadProducts();
       loadClients();
-      if (initialClient) setClient(initialClient);
-      else setClient(null);
+      setClient(initialClient || null);
       setSearch('');
       setBarcode('');
       setCart([]);
@@ -71,6 +68,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
       Alert.alert('Erreur', 'Veuillez saisir un nom');
       return;
     }
+
     const newClient = {
       id: Date.now(),
       name: newClientName.trim(),
@@ -87,7 +85,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     setClientModalVisible(false);
   };
 
-  const filteredProducts = products.filter(p => {
+  const filteredProducts = products.filter((p) => {
     const searchLower = search.toLowerCase();
     if (searchLower === '') return true;
     const nameFirst = p.name.charAt(0).toLowerCase();
@@ -99,7 +97,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
   });
 
   const openProductModal = (product) => {
-    const existing = cart.find(item => item.id === product.id);
+    const existing = cart.find((item) => item.id === product.id);
     if (existing) {
       setQuantity(String(existing.quantity));
       setUnitPrice(String(existing.price));
@@ -119,7 +117,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
         openProductModal(product);
         setBarcode('');
       } else {
-        Alert.alert('Non trouvé', 'Aucun produit avec ce code-barres');
+        Alert.alert('Non trouve', 'Aucun produit avec ce code-barres');
       }
     } catch (error) {
       Alert.alert('Erreur', error.message);
@@ -135,51 +133,43 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     if (!permission?.granted) {
       const { granted } = await requestPermission();
       if (!granted) {
-        Alert.alert('Permission refusée', 'Vous devez autoriser l\'accès à la caméra pour scanner');
+        Alert.alert('Permission refusee', "Vous devez autoriser l'acces a la camera pour scanner");
         return;
       }
     }
     setScannerVisible(true);
   };
 
-  // Vérification du stock avant ajout/modification
   const addOrUpdateCart = () => {
     if (!selectedProduct) return;
     const qty = parseInt(quantity, 10);
     if (isNaN(qty) || qty <= 0) {
-      Alert.alert('Erreur', 'La quantité doit être un nombre positif');
+      Alert.alert('Erreur', 'La quantite doit etre un nombre positif');
       return;
     }
     const price = parseFloat(unitPrice);
     if (isNaN(price) || price <= 0) {
-      Alert.alert('Erreur', 'Le prix doit être un nombre positif');
+      Alert.alert('Erreur', 'Le prix doit etre un nombre positif');
       return;
     }
 
-    // Vérifier le stock disponible
     const stockDisponible = selectedProduct.stock_quantity || 0;
     if (qty > stockDisponible) {
       Alert.alert('Stock insuffisant', `Il ne reste que ${stockDisponible} exemplaire(s) de ${selectedProduct.name}`);
       return;
     }
 
-    const existingIndex = cart.findIndex(item => item.id === selectedProduct.id);
+    const existingIndex = cart.findIndex((item) => item.id === selectedProduct.id);
     if (existingIndex !== -1) {
-      // Modification d'un produit existant : vérifier la nouvelle quantité
-      const ancienneQty = cart[existingIndex].quantity;
-      if (qty > stockDisponible) {
-        Alert.alert('Stock insuffisant', `Stock disponible : ${stockDisponible}`);
-        return;
-      }
       const updatedCart = [...cart];
       updatedCart[existingIndex] = {
         ...updatedCart[existingIndex],
         quantity: qty,
-        price: price,
+        price,
       };
       setCart(updatedCart);
     } else {
-      setCart([...cart, { ...selectedProduct, quantity: qty, price: price }]);
+      setCart([...cart, { ...selectedProduct, quantity: qty, price }]);
     }
     setProductModalVisible(false);
     setSelectedProduct(null);
@@ -187,21 +177,21 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
     setUnitPrice('');
   };
 
-  // Mise à jour de la quantité dans le panier avec vérification du stock
   const updateQuantity = (id, delta) => {
-    setCart(cart.map(item => {
-      if (item.id === id) {
-        const newQty = item.quantity + delta;
-        if (newQty < 0) return null;
-        // Vérifier le stock si on augmente
-        if (delta > 0 && newQty > (item.stock_quantity || 0)) {
-          Alert.alert('Stock insuffisant', `Il ne reste que ${item.stock_quantity} exemplaire(s) de ${item.name}`);
-          return item;
+    setCart(
+      cart.map((item) => {
+        if (item.id === id) {
+          const newQty = item.quantity + delta;
+          if (newQty < 0) return null;
+          if (delta > 0 && newQty > (item.stock_quantity || 0)) {
+            Alert.alert('Stock insuffisant', `Il ne reste que ${item.stock_quantity} exemplaire(s) de ${item.name}`);
+            return item;
+          }
+          return { ...item, quantity: newQty };
         }
-        return { ...item, quantity: newQty };
-      }
-      return item;
-    }).filter(Boolean));
+        return item;
+      }).filter(Boolean)
+    );
   };
 
   const editPrice = (item) => {
@@ -218,78 +208,31 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
               Alert.alert('Erreur', 'Veuillez entrer un prix valide');
               return;
             }
-            setCart(cart.map(cartItem =>
-              cartItem.id === item.id ? { ...cartItem, price: price } : cartItem
+            setCart(cart.map((cartItem) =>
+              cartItem.id === item.id ? { ...cartItem, price } : cartItem
             ));
-          }
-        }
+          },
+        },
       ],
       'plain-text',
       String(item.price)
     );
   };
 
-  const totalHT = cart.reduce((sum, item) => sum + (Number(item.price) * Number(item.quantity)), 0);
-  const tva = includeTVA ? totalHT * 0.19 : 0;
-  const totalTTC = totalHT + tva;
+  const { totalHT, tva, totalTTC } = calculateSaleTotals(cart, includeTVA);
 
   const saveSale = async () => {
-    if (!client) {
-      Alert.alert('Erreur', 'Veuillez sélectionner un client');
-      return;
-    }
-    if (cart.length === 0) {
-      Alert.alert('Erreur', 'Ajoutez au moins un produit');
-      return;
-    }
-    if (!isCredit && !paymentMethod) {
-      Alert.alert('Erreur', 'Veuillez sélectionner un mode de paiement');
-      return;
-    }
-
-    // Vérification globale du stock
-    const stockInsuffisant = cart.filter(item => item.quantity > (item.stock_quantity || 0));
-    if (stockInsuffisant.length > 0) {
-      const message = stockInsuffisant.map(item =>
-        `${item.name}: demande ${item.quantity}, stock ${item.stock_quantity || 0}`
-      ).join('\n');
-      Alert.alert('Stock insuffisant', `Les produits suivants dépassent le stock disponible :\n\n${message}`);
+    const validationError = validateSaleDraft({ client, cart, isCredit, paymentMethod });
+    if (validationError) {
+      const title = validationError.includes('stock disponible') ? 'Stock insuffisant' : 'Erreur';
+      Alert.alert(title, validationError);
       return;
     }
 
     setLoading(true);
     try {
-      const now = new Date();
-      const dateStr = now.toLocaleDateString('fr-FR').replace(/\//g, '-');
-      const timeStr = now.getTime();
-      const clientNameSanitized = client.name.replace(/\s+/g, '_');
-      const invoiceNumber = await getNextInvoiceNumber();
-      const invoice = `FACT-${invoiceNumber}`;
-
-      const status = isCredit ? 'pending' : 'paid';
-      const saleData = {
-        client_id: client.id,
-        client_name: client.name,
-        date: new Date().toLocaleDateString(),
-        items: cart.length,
-        total: totalTTC,
-        status: status,
-        invoice: invoice,
-        sale_date: new Date().toISOString(),
-        payment_status: status,
-        payment_method: isCredit ? 'credit' : paymentMethod,
-        tva_applied: includeTVA,
-      };
-      const itemsData = cart.map(item => ({
-        product_id: item.id,
-        barcode: item.barcode,
-        name: item.name,
-        quantity: item.quantity,
-        unit_price: Number(item.price),
-        total: Number(item.price) * item.quantity,
-      }));
-      await saveSaleLocally(saleData, itemsData);
-      Alert.alert('Succès', 'Vente enregistrée');
+      await savePreparedSale({ client, cart, isCredit, paymentMethod, includeTVA });
+      Alert.alert('Succes', 'Vente enregistree');
       onSaved();
       onClose();
     } catch (error) {
@@ -323,22 +266,20 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>Nouvelle vente</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.closeBtnText}>✕</Text></TouchableOpacity>
+          <TouchableOpacity onPress={onClose}><Text style={styles.closeBtnText}>X</Text></TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={true}>
-          {/* Client */}
+        <ScrollView style={styles.content} showsVerticalScrollIndicator>
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Client</Text>
             <TouchableOpacity style={styles.clientSelector} onPress={() => setClientModalVisible(true)}>
               <Text style={styles.clientSelectorText}>
-                {client ? client.name : 'Sélectionner un client'}
+                {client ? client.name : 'Selectionner un client'}
               </Text>
-              <Text style={styles.chevron}>▼</Text>
+              <Text style={styles.chevron}>v</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Ajout par code-barres avec scan */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Ajouter par code-barres</Text>
             <View style={styles.barcodeRow}>
@@ -358,7 +299,6 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             </View>
           </View>
 
-          {/* Produits disponibles */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Produits disponibles</Text>
             <TextInput
@@ -367,8 +307,8 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
               value={search}
               onChangeText={setSearch}
             />
-            <ScrollView style={styles.productScrollView} nestedScrollEnabled={true}>
-              {filteredProducts.map(product => (
+            <ScrollView style={styles.productScrollView} nestedScrollEnabled>
+              {filteredProducts.map((product) => (
                 <TouchableOpacity key={product.id} style={styles.productItem} onPress={() => openProductModal(product)}>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.productName}>{product.name}</Text>
@@ -380,25 +320,24 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
                 </TouchableOpacity>
               ))}
               {filteredProducts.length === 0 && (
-                <Text style={styles.emptyText}>Aucun produit trouvé</Text>
+                <Text style={styles.emptyText}>Aucun produit trouve</Text>
               )}
             </ScrollView>
           </View>
 
-          {/* Panier */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Panier</Text>
             {cart.length === 0 ? (
-              <Text style={styles.emptyCart}>Aucun produit ajouté</Text>
+              <Text style={styles.emptyCart}>Aucun produit ajoute</Text>
             ) : (
               <>
                 <View style={styles.cartTableHeader}>
                   <Text style={[styles.cartHeaderCell, styles.cartProductName]}>Produit</Text>
-                  <Text style={[styles.cartHeaderCell, styles.cartQuantityHeader]}>Qté</Text>
+                  <Text style={[styles.cartHeaderCell, styles.cartQuantityHeader]}>Qte</Text>
                   <Text style={[styles.cartHeaderCell, styles.cartPriceHeader]}>Prix U.</Text>
                   <Text style={[styles.cartHeaderCell, styles.cartTotalHeader]}>Total</Text>
                 </View>
-                <ScrollView style={styles.cartList} nestedScrollEnabled={true}>
+                <ScrollView style={styles.cartList} nestedScrollEnabled>
                   {cart.map((item) => (
                     <React.Fragment key={item.id.toString()}>
                       {renderCartItem({ item })}
@@ -409,7 +348,6 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             )}
           </View>
 
-          {/* Options : Crédit / TVA */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Options</Text>
             <View style={styles.optionsRow}>
@@ -417,13 +355,13 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
                 style={[styles.optionBtn, !isCredit && styles.optionBtnActive]}
                 onPress={() => setIsCredit(false)}
               >
-                <Text style={[styles.optionBtnText, !isCredit && { color: '#fff' }]}>Paiement immédiat</Text>
+                <Text style={[styles.optionBtnText, !isCredit && { color: '#fff' }]}>Paiement immediat</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.optionBtn, isCredit && styles.optionBtnActive]}
                 onPress={() => setIsCredit(true)}
               >
-                <Text style={[styles.optionBtnText, isCredit && { color: '#fff' }]}>Crédit</Text>
+                <Text style={[styles.optionBtnText, isCredit && { color: '#fff' }]}>Credit</Text>
               </TouchableOpacity>
             </View>
             <View style={styles.optionsRow}>
@@ -442,17 +380,16 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             </View>
           </View>
 
-          {/* Mode de paiement (si crédit non sélectionné) */}
           {!isCredit && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Mode de paiement</Text>
               <View style={styles.paymentRow}>
                 {[
-                  { value: 'cash', label: '💰 Espèces', icon: '💰' },
+                  { value: 'cash', label: '💰 Especes', icon: '💰' },
                   { value: 'card', label: '💳 Carte bancaire', icon: '💳' },
                   { value: 'transfer', label: '🏦 Virement', icon: '🏦' },
-                  { value: 'check', label: '📝 Chèque', icon: '📝' },
-                ].map(option => (
+                  { value: 'check', label: '📝 Cheque', icon: '📝' },
+                ].map((option) => (
                   <TouchableOpacity
                     key={option.value}
                     style={[styles.paymentOption, paymentMethod === option.value && styles.paymentOptionActive]}
@@ -468,9 +405,8 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             </View>
           )}
 
-          {/* Totaux */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Récapitulatif</Text>
+            <Text style={styles.sectionTitle}>Recapitulatif</Text>
             <View style={styles.totalRow}><Text>Total HT</Text><Text>{formatDA(totalHT)}</Text></View>
             {includeTVA && (
               <View style={styles.totalRow}><Text>TVA (19%)</Text><Text>{formatDA(tva)}</Text></View>
@@ -490,13 +426,12 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
         </View>
       </View>
 
-      {/* Modal scanner (inchangé) */}
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
         <View style={styles.scannerContainer}>
           <View style={styles.scannerHeader}>
             <Text style={styles.scannerTitle}>Scanner un code-barres</Text>
             <TouchableOpacity onPress={() => setScannerVisible(false)} style={styles.scannerClose}>
-              <Text style={styles.scannerCloseText}>✕</Text>
+              <Text style={styles.scannerCloseText}>X</Text>
             </TouchableOpacity>
           </View>
           <CameraView
@@ -507,18 +442,17 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
               barcodeTypes: ['ean13', 'ean8', 'code128', 'code39', 'qr', 'upc_a', 'upc_e'],
             }}
           />
-          <Text style={styles.scannerHint}>Placez le code-barres devant la caméra</Text>
+          <Text style={styles.scannerHint}>Placez le code-barres devant la camera</Text>
         </View>
       </Modal>
 
-      {/* Modals client et produit (inchangés) */}
       <Modal visible={clientModalVisible} animationType="slide" transparent onRequestClose={() => setClientModalVisible(false)}>
         <View style={styles.clientModalOverlay}>
           <View style={styles.clientModalContent}>
             <Text style={styles.clientModalTitle}>Choisir un client</Text>
             <FlatList
               data={clientsList}
-              keyExtractor={item => item.id.toString()}
+              keyExtractor={(item) => item.id.toString()}
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.clientItem} onPress={() => selectClient(item)}>
                   <Text style={styles.clientItemName}>{item.name}</Text>
@@ -552,7 +486,7 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
             <Text style={styles.productNameModal}>{selectedProduct?.name}</Text>
             <Text style={styles.stockInfoModal}>Stock disponible : {selectedProduct?.stock_quantity || 0}</Text>
             <View style={styles.productModalField}>
-              <Text style={styles.productModalLabel}>Quantité :</Text>
+              <Text style={styles.productModalLabel}>Quantite :</Text>
               <TextInput
                 style={styles.productModalInput}
                 keyboardType="numeric"
@@ -585,7 +519,6 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
 }
 
 const styles = StyleSheet.create({
-  // ... tous vos styles existants (conservez-les)
   container: { flex: 1, backgroundColor: '#F5F5F5' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#E0E0E0' },
   title: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },

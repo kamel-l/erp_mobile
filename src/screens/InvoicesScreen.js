@@ -10,7 +10,7 @@ import {
     Card, Badge, Avatar, SectionTitle, Divider,
     SearchBar,
 } from '../components/UIComponents';
-import { getLocalSales } from '../database/database';
+import { getLocalSales } from '../database/salesRepository';
 
 const AVATAR_COLORS = [
     { bg: '#E3F2FD', text: '#0D47A1' },

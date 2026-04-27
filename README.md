@@ -18,7 +18,7 @@ erp-mobile/
     │   ├── DashboardScreen.js      # Tableau de bord
     │   ├── SalesScreen.js          # Ventes & Factures
     │   ├── StockScreen.js          # Stock & Inventaire
-    │   ├── HRScreen.js             # RH & Employés
+    │   ├── ClientsScreen.js        # Clients
     │   └── ReportsScreen.js        # Rapports & Analyses
     ├── components/
     │   └── UIComponents.js         # Composants réutilisables

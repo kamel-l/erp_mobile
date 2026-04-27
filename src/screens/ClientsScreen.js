@@ -10,7 +10,8 @@ import { COLORS, formatDA } from '../services/theme';
 import {
   Card, KpiCard, Badge, SearchBar,
 } from '../components/UIComponents';
-import { getLocalClients, saveClientsLocally, getLocalSales } from '../database/database';
+import { getLocalClients, saveClientsLocally } from '../database/database';
+import { getLocalSales } from '../database/salesRepository';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -218,6 +219,11 @@ export default function ClientsScreen() {
     setDetailModalVisible(true);
   };
 
+  const openSaleDetailFromClient = (sale) => {
+    setDetailModalVisible(false);
+    navigation.navigate('SaleDetail', { saleId: sale.id });
+  };
+
   const renderHeader = () => (
     <>
       <View style={styles.headerStats}>
@@ -335,7 +341,11 @@ export default function ClientsScreen() {
                     <Text style={styles.emptyText}>Aucune facture pour ce client</Text>
                   ) : (
                     clientDetail.sales.map(sale => (
-                      <Card key={sale.id} style={styles.saleItem}>
+                      <Card
+                        key={sale.id}
+                        style={styles.saleItem}
+                        onPress={() => openSaleDetailFromClient(sale)}
+                      >
                         <RowBetween>
                           <Text style={styles.saleInvoice}>{sale.invoice}</Text>
                           <Badge status={sale.status === 'paid' ? 'paid' : 'pending'} />

@@ -6,8 +6,6 @@ import { MOCK_DATA } from './mockData';
 import {
   getLocalProducts,
   saveProductsLocally,
-  getLocalSales,
-  saveSaleLocally,
   getLocalClients,
   saveClientsLocally,
   getDashboardStatsOffline,
@@ -24,6 +22,7 @@ import {
   setLastSyncTime,
   getLastSyncTime,
 } from '../database/database';
+import { getLocalSales, saveSaleLocally } from '../database/salesRepository';
 
 // ========== CONFIGURATION ==========
 const BASE_URL = 'http://192.168.1.65:5000'; // À adapter à votre serveur

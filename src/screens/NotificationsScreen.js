@@ -7,7 +7,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS, formatDA } from '../services/theme';
 import { RowBetween } from '../components/UIComponents';
-import { getLocalProducts, getLocalSales } from '../database/database';
+import { getLocalProducts } from '../database/database';
+import { getLocalSales } from '../database/salesRepository';
 
 const STORAGE_KEYS = {
   DISMISSED_NOTIFS: '@erp_dismissed_notifications', // IDs supprimés

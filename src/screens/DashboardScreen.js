@@ -11,7 +11,6 @@ import {
   AlertDot, RowBetween, LoadingView,
 } from '../components/UIComponents';
 import {
-  getLocalSales,
   getLocalProducts,
   getLowStockOffline,
   saveLowStockOffline,
@@ -20,22 +19,36 @@ import {
   getSalesWeekOffline,
   saveSalesWeekOffline,
 } from '../database/database';
+import { getLocalSales } from '../database/salesRepository';
 
 const { width } = Dimensions.get('window');
 const BAR_MAX_HEIGHT = 80;
 
-// === Fonctions de calcul (inchangées) ===
+// === Fonctions de calcul ===
+const normalizeDate = (dStr) => {
+  if (!dStr) return '';
+  if (dStr.includes('/')) {
+    const p = dStr.split('/');
+    if (p.length === 3 && p[2].length === 4) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+  }
+  if (dStr.includes('-')) {
+    const p = dStr.split('-');
+    if (p.length === 3 && p[2].length === 4) return `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+  }
+  return dStr;
+};
+
 const computeStatsFromLocalData = (sales, products) => {
   const today = new Date().toISOString().split('T')[0];
   const salesToday = sales
-    .filter(s => s.date === today)
+    .filter(s => normalizeDate(s.date) === today)
     .reduce((sum, s) => sum + (s.total || 0), 0);
 
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().split('T')[0];
   const salesYesterday = sales
-    .filter(s => s.date === yesterdayStr)
+    .filter(s => normalizeDate(s.date) === yesterdayStr)
     .reduce((sum, s) => sum + (s.total || 0), 0);
   const growth = salesYesterday === 0 ? 0 : ((salesToday - salesYesterday) / salesYesterday) * 100;
 
@@ -47,7 +60,7 @@ const computeStatsFromLocalData = (sales, products) => {
   const currentYear = new Date().getFullYear();
   const monthlyRevenue = sales
     .filter(s => {
-      const d = new Date(s.date);
+      const d = new Date(normalizeDate(s.date));
       return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
     })
     .reduce((sum, s) => sum + (s.total || 0), 0);
@@ -81,8 +94,9 @@ const computeSalesWeek = (sales) => {
   }
 
   sales.forEach(s => {
-    if (s.date >= start.toISOString().split('T')[0] && s.date <= end.toISOString().split('T')[0]) {
-      daysMap.set(s.date, (daysMap.get(s.date) || 0) + (s.total || 0));
+    const dStr = normalizeDate(s.date);
+    if (dStr >= start.toISOString().split('T')[0] && dStr <= end.toISOString().split('T')[0]) {
+      daysMap.set(dStr, (daysMap.get(dStr) || 0) + (s.total || 0));
     }
   });
 
@@ -98,7 +112,14 @@ const computeLowStock = (products) => {
   return products
     .filter(p => (p.stock_quantity || 0) <= (p.min_stock || 0))
     .sort((a, b) => (a.stock_quantity || 0) - (b.stock_quantity || 0))
-    .slice(0, LIMIT);
+    .slice(0, LIMIT)
+    .map(p => ({
+      product_id: p.id,
+      name: p.name,
+      current: p.stock_quantity || 0,
+      min: p.min_stock || 0,
+      category: p.category
+    }));
 };
 
 // === Composant de sélection de période ===
@@ -301,18 +322,19 @@ export default function DashboardScreen() {
 
       const filtered = sales.filter(s => {
         if (!startDate || !endDate) return true;
-        return s.date >= startDate && s.date <= endDate;
+        const dStr = normalizeDate(s.date);
+        return dStr >= startDate && dStr <= endDate;
       });
 
       const clientMap = new Map();
       filtered.forEach(s => {
-        const id = s.client_id;
+        const id = s.client_id || s.client_name;
         if (!id) return;
         if (!clientMap.has(id)) {
-          clientMap.set(id, { name: s.client_name, total: 0, count: 0 });
+          clientMap.set(id, { name: s.client_name || 'Client Inconnu', total: 0, count: 0 });
         }
         const c = clientMap.get(id);
-        c.total += s.total;
+        c.total += (s.total || 0);
         c.count += 1;
       });
       const sorted = Array.from(clientMap.values())

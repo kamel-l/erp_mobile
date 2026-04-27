@@ -1,4 +1,3 @@
-// src/navigation/AppNavigator.js
 import React, { useState, useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -6,22 +5,23 @@ import { NavigationContainer } from '@react-navigation/native';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../services/theme';
+import { useAuth } from '../context/AuthContext';
 
 import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import SalesScreen from '../screens/SalesScreen';
 import StockScreen from '../screens/StockScreen';
-import HRScreen from '../screens/HRScreen';
 import ClientsScreen from '../screens/ClientsScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import StockImportScreen from '../screens/StockImportScreen_Enhanced';
-import { getLocalProducts, getLocalSales } from '../database/database';
+import { getLocalProducts } from '../database/database';
+import { getLocalSales } from '../database/salesRepository';
 import UserManagementScreen from '../screens/UserManagementScreen';
 import InvoicesScreen from '../screens/InvoicesScreen';
 import SaleDetailScreen from '../screens/SaleDetailScreen';
-
+import { LoadingView } from '../components/UIComponents';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -36,7 +36,6 @@ function NotifBell({ navigation }) {
 
   const loadNotifCount = async () => {
     try {
-      // Récupérer les IDs des notifications supprimées et lues
       const dismissedJson = await AsyncStorage.getItem(STORAGE_KEYS.DISMISSED_NOTIFS);
       const readJson = await AsyncStorage.getItem(STORAGE_KEYS.READ_NOTIFS);
       const dismissedIds = dismissedJson ? JSON.parse(dismissedJson) : [];
@@ -46,8 +45,7 @@ function NotifBell({ navigation }) {
       const sales = await getLocalSales();
       let unreadCount = 0;
 
-      // Stock critique
-      products.forEach(product => {
+      products.forEach((product) => {
         const current = product.stock_quantity || 0;
         const min = product.min_stock || 0;
         const notifId = `stock-${product.id}`;
@@ -56,18 +54,16 @@ function NotifBell({ navigation }) {
         }
       });
 
-      // Paiements en attente
-      sales.forEach(sale => {
+      sales.forEach((sale) => {
         const notifId = `payment-${sale.id}`;
         if (sale.status !== 'paid' && sale.status !== 'cancelled' && !dismissedIds.includes(notifId) && !readIds.includes(notifId)) {
           unreadCount++;
         }
       });
 
-      // Ventes récentes (moins de 24h)
       const oneDayAgo = new Date();
       oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-      sales.forEach(sale => {
+      sales.forEach((sale) => {
         const saleDate = new Date(sale.sale_date || sale.date);
         const notifId = `sale-${sale.id}`;
         if (saleDate > oneDayAgo && !dismissedIds.includes(notifId) && !readIds.includes(notifId)) {
@@ -107,6 +103,8 @@ const TabIcon = ({ emoji, label, focused }) => (
 );
 
 function MainTabs({ navigation }) {
+  const { logout } = useAuth();
+
   const hdr = {
     headerStyle: { backgroundColor: COLORS.primary },
     headerTintColor: '#fff',
@@ -116,37 +114,77 @@ function MainTabs({ navigation }) {
 
   return (
     <Tab.Navigator screenOptions={{ ...hdr, tabBarStyle: styles.tabBar, tabBarShowLabel: false }}>
-      <Tab.Screen name="Dashboard" component={DashboardScreen}
-        options={{ title: 'Tableau de bord', tabBarIcon: ({ focused }) => <TabIcon emoji="📊" label="Dashboard" focused={focused} /> }} />
-      <Tab.Screen name="Ventes" component={SalesScreen}
-        options={{ title: 'Ventes & Facturation', tabBarIcon: ({ focused }) => <TabIcon emoji="💰" label="Ventes" focused={focused} /> }} />
-      <Tab.Screen name="Stock" component={StockScreen}
-        options={{ title: 'Stocks & Inventaire', tabBarIcon: ({ focused }) => <TabIcon emoji="📦" label="Stock" focused={focused} /> }} />
-      <Tab.Screen name="RH" component={ClientsScreen}
-        options={{ title: 'Clients', tabBarIcon: ({ focused }) => <TabIcon emoji="👥" label="RH" focused={focused} /> }} />
-      <Tab.Screen name="Rapports" component={ReportsScreen}
-        options={{ title: 'Rapports & Analyses', tabBarIcon: ({ focused }) => <TabIcon emoji="📈" label="Rapports" focused={focused} /> }} />
-      <Tab.Screen name="Profil"
-        options={{ title: 'Mon Profil', tabBarIcon: ({ focused }) => <TabIcon emoji="⚙️" label="Profil" focused={focused} /> }}>
-        {(props) => <ProfileScreen {...props} onLogout={() => navigation.replace('Login')} />}
+      <Tab.Screen
+        name="Dashboard"
+        component={DashboardScreen}
+        options={{ title: 'Tableau de bord', tabBarIcon: ({ focused }) => <TabIcon emoji="📊" label="Dashboard" focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="Ventes"
+        component={SalesScreen}
+        options={{ title: 'Ventes & Facturation', tabBarIcon: ({ focused }) => <TabIcon emoji="💰" label="Ventes" focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="Stock"
+        component={StockScreen}
+        options={{ title: 'Stocks & Inventaire', tabBarIcon: ({ focused }) => <TabIcon emoji="📦" label="Stock" focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="RH"
+        component={ClientsScreen}
+        options={{ title: 'Clients', tabBarIcon: ({ focused }) => <TabIcon emoji="👥" label="RH" focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="Rapports"
+        component={ReportsScreen}
+        options={{ title: 'Rapports & Analyses', tabBarIcon: ({ focused }) => <TabIcon emoji="📈" label="Rapports" focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="Profil"
+        options={{ title: 'Mon Profil', tabBarIcon: ({ focused }) => <TabIcon emoji="⚙️" label="Profil" focused={focused} /> }}
+      >
+        {(props) => <ProfileScreen {...props} onLogout={logout} />}
       </Tab.Screen>
     </Tab.Navigator>
   );
 }
 
 export default function AppNavigator() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <LoadingView />;
+  }
+
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="Main" component={MainTabs} />
+        {user ? (
+          <Stack.Screen name="Main" component={MainTabs} />
+        ) : (
+          <Stack.Screen name="Login" component={LoginScreen} />
+        )}
         <Stack.Screen name="StockImport" component={StockImportScreen} options={{ title: 'Import/Export Stock' }} />
-        <Stack.Screen name="Invoices" component={InvoicesScreen} options={{ title: 'Toutes les factures', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff' }} />
-        <Stack.Screen name="UserManagement" component={UserManagementScreen} options={{ headerShown: true, title: 'Gestion utilisateurs', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff' }} />
-        <Stack.Screen name="Notifications" component={NotificationsScreen}
-          options={{ headerShown: true, title: 'Notifications', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '500' } }} />
-        <Stack.Screen name="SaleDetail" component={SaleDetailScreen}
-          options={{ headerShown: true, title: 'Détails de la vente', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '500' } }} />
+        <Stack.Screen
+          name="Invoices"
+          component={InvoicesScreen}
+          options={{ title: 'Toutes les factures', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff' }}
+        />
+        <Stack.Screen
+          name="UserManagement"
+          component={UserManagementScreen}
+          options={{ headerShown: true, title: 'Gestion utilisateurs', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff' }}
+        />
+        <Stack.Screen
+          name="Notifications"
+          component={NotificationsScreen}
+          options={{ headerShown: true, title: 'Notifications', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '500' } }}
+        />
+        <Stack.Screen
+          name="SaleDetail"
+          component={SaleDetailScreen}
+          options={{ headerShown: true, title: 'Details de la vente', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '500' } }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

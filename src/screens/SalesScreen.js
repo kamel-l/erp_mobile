@@ -10,7 +10,7 @@ import {
   Card, SectionTitle, Divider, RowBetween, ProgressBar, Badge,
 } from '../components/UIComponents';
 import NewSaleModal from './modals/NewSaleModal';
-import { getLocalSales } from '../database/database';
+import { getLocalSales } from '../database/salesRepository';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';

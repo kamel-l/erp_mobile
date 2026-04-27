@@ -4,6 +4,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import { authAPI } from '../services/api';
+import { setCurrentUser, clearCurrentUser } from '../database/database';
 
 const AuthContext = createContext(null);
 
@@ -16,9 +17,10 @@ export function AuthProvider({ children }) {
     (async () => {
       try {
         const userData = await SecureStore.getItemAsync('user_data');
-        const token = await SecureStore.getItemAsync('auth_token');
-        if (userData && token) {
-          setUser(JSON.parse(userData));
+        if (userData) {
+          const parsedUser = JSON.parse(userData);
+          setUser(parsedUser);
+          await setCurrentUser(parsedUser);
         }
       } catch {
         // Pas de session sauvegardée
@@ -31,14 +33,20 @@ export function AuthProvider({ children }) {
   const login = async (username, password) => {
     try {
       const data = await authAPI.login(username, password);
+      if (data?.token) {
+        await SecureStore.setItemAsync('auth_token', data.token);
+      }
       setUser(data.user);
+      await setCurrentUser(data.user);
       return { success: true };
     } catch (err) {
       // Mode offline : admin/admin123
       if (username === 'admin' && password === 'admin123') {
         const offlineUser = { id: 1, username: 'admin', role: 'admin', displayName: 'Administrateur' };
+        await SecureStore.setItemAsync('auth_token', 'offline-token');
         await SecureStore.setItemAsync('user_data', JSON.stringify(offlineUser));
         setUser(offlineUser);
+        await setCurrentUser(offlineUser);
         return { success: true };
       }
       return { success: false, error: 'Identifiants incorrects' };
@@ -47,6 +55,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     await authAPI.logout();
+    await clearCurrentUser();
     setUser(null);
   };
 
