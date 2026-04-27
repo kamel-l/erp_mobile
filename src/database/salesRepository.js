@@ -1,6 +1,4 @@
-import * as SQLite from 'expo-sqlite';
-
-const db = SQLite.openDatabaseSync('erp.db');
+import { db } from './database';
 
 export const addToPendingSync = async (type, recordId, data) => {
   try {

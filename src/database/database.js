@@ -1,10 +1,10 @@
 // src/database/database.js
 import * as SQLite from 'expo-sqlite';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { initInvoiceCounter as initSalesInvoiceCounter } from './salesRepository';
 
-// Ouvrir (ou créer) la base de données
-const db = SQLite.openDatabaseSync('erp.db');
+
+// Ouvrir (ou créer) la base de données — instance unique partagée
+export const db = SQLite.openDatabaseSync('erp.db');
 
 // ========== INITIALISATION DES TABLES ==========
 export const initDatabase = async () => {
@@ -412,7 +412,9 @@ export const clearAllData = async () => {
       }
     }
     await db.runAsync('DELETE FROM invoice_counter');
-    await initSalesInvoiceCounter(); // pour recréer avec 999
+    // Recréer le compteur de facture (valeur initiale 999)
+    await db.execAsync(`CREATE TABLE IF NOT EXISTS invoice_counter (id INTEGER PRIMARY KEY CHECK (id = 1), last_number INTEGER DEFAULT 999)`);
+    await db.runAsync('INSERT OR IGNORE INTO invoice_counter (id, last_number) VALUES (1, 999)');
     // Recréer l'utilisateur admin par défaut
     await db.runAsync(
       `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
