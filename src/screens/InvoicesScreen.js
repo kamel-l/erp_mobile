@@ -104,7 +104,7 @@ export default function InvoicesScreen({ navigation }) {
             <FlatList
                 key={viewMode}
                 data={filtered}
-                keyExtractor={item => item.id.toString()}
+                keyExtractor={(item, index) => item.id != null ? item.id.toString() : `idx-${index}`}
                 renderItem={viewMode === 'list' ? renderListItem : renderGridItem}
                 numColumns={viewMode === 'grid' ? 2 : 1}
                 columnWrapperStyle={viewMode === 'grid' ? styles.gridColumnWrapper : undefined}

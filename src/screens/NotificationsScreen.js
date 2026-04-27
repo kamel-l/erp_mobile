@@ -100,13 +100,14 @@ export default function NotificationsScreen() {
         }
       });
 
-      // Ventes récentes (24h) – on ne les supprime jamais car elles sont éphémères
+      // Ventes récentes (24h) — exclure celles déjà couvertes par une alerte «paiement en attente»
       const oneDayAgo = new Date();
       oneDayAgo.setDate(oneDayAgo.getDate() - 1);
       sales.forEach(sale => {
         const saleDate = new Date(sale.sale_date || sale.date);
         const notifId = `sale-${sale.id}`;
-        if (saleDate > oneDayAgo && !dismissedIds.includes(notifId)) {
+        const coveredByPaymentNotif = sale.status !== 'paid' && sale.status !== 'cancelled';
+        if (saleDate > oneDayAgo && !coveredByPaymentNotif && !dismissedIds.includes(notifId)) {
           newNotifs.push({
             id: notifId,
             type: 'success',

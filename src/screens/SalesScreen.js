@@ -173,7 +173,9 @@ export default function SalesScreen({ navigation }) {
 
   const openClientDetails = async (clientId, clientName) => {
     const allSales = await getLocalSales();
-    const filtered = allSales.filter(s => s.client_id === clientId);
+    const filtered = clientId
+      ? allSales.filter(s => s.client_id === clientId)
+      : allSales.filter(s => s.client_name?.trim().toLowerCase() === clientName?.trim().toLowerCase());
     setClientSales(filtered);
     setSelectedClient({ id: clientId, name: clientName });
     setClientModalVisible(true);

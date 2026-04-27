@@ -260,6 +260,8 @@ export default function DashboardScreen() {
           salesWeek: [],
           lowStock: [],
         });
+        setTopClients([]);
+        setLastInvoices([]);
         return;
       }
 
@@ -273,6 +275,26 @@ export default function DashboardScreen() {
       await saveLowStockOffline(lowStock);
 
       setData({ stats, salesWeek, lowStock });
+
+      // Top clients (année en cours par défaut)
+      const today = new Date();
+      const startYear = new Date(today.getFullYear(), 0, 1).toISOString().split('T')[0];
+      const endYear = today.toISOString().split('T')[0];
+      const clientMap = new Map();
+      sales
+        .filter(s => { const d = normalizeDate(s.date); return d >= startYear && d <= endYear; })
+        .forEach(s => {
+          const id = s.client_id || s.client_name;
+          if (!id) return;
+          if (!clientMap.has(id)) clientMap.set(id, { name: s.client_name || 'Client Inconnu', total: 0, count: 0 });
+          const c = clientMap.get(id);
+          c.total += (s.total || 0);
+          c.count += 1;
+        });
+      setTopClients(Array.from(clientMap.values()).sort((a, b) => b.total - a.total).slice(0, 5));
+
+      // Dernières factures
+      setLastInvoices(sales.slice(0, 10));
     } catch (error) {
       console.error('Erreur chargement dashboard:', error);
       // Fallback : lecture du cache
@@ -319,28 +341,21 @@ export default function DashboardScreen() {
         startDate = null;
         endDate = null;
       }
-
       const filtered = sales.filter(s => {
         if (!startDate || !endDate) return true;
         const dStr = normalizeDate(s.date);
         return dStr >= startDate && dStr <= endDate;
       });
-
       const clientMap = new Map();
       filtered.forEach(s => {
         const id = s.client_id || s.client_name;
         if (!id) return;
-        if (!clientMap.has(id)) {
-          clientMap.set(id, { name: s.client_name || 'Client Inconnu', total: 0, count: 0 });
-        }
+        if (!clientMap.has(id)) clientMap.set(id, { name: s.client_name || 'Client Inconnu', total: 0, count: 0 });
         const c = clientMap.get(id);
         c.total += (s.total || 0);
         c.count += 1;
       });
-      const sorted = Array.from(clientMap.values())
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 5);
-      setTopClients(sorted);
+      setTopClients(Array.from(clientMap.values()).sort((a, b) => b.total - a.total).slice(0, 5));
     } catch (error) {
       console.error(error);
     }
@@ -357,17 +372,14 @@ export default function DashboardScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadData();
-      loadTopClients();
-      loadLastInvoices();
+      loadData(); // loadData met aussi à jour topClients et lastInvoices au premier chargement
     }, [])
   );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    await loadTopClients();
-    await loadLastInvoices();
+    await loadData(); // loadData inclut topClients+lastInvoices au 1er chargement
+    await loadTopClients(); // re-fetch pour le filtre de période courant
     setRefreshing(false);
   };
 
