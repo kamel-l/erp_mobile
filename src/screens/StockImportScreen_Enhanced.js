@@ -455,6 +455,14 @@ export default function StockImportScreen({ navigation }) {
 
       <Text style={styles.sectionTitle}>📥 Importer des produits</Text>
 
+      <TouchableOpacity style={styles.barcodeImageBtn} onPress={() => navigation.navigate('BarcodeImageImport')}>
+        <Text style={styles.btnIcon}>📸</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.btnTitle}>Importer images de codes-barres</Text>
+          <Text style={styles.btnSubtitle}>Sélectionner des photos de QR / codes-barres</Text>
+        </View>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.importBtn} onPress={importFromCSVFile}>
         <Text style={styles.btnIcon}>📄</Text>
         <View style={{ flex: 1 }}>
@@ -649,4 +657,5 @@ const styles = StyleSheet.create({
   csvInput: { borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 10, padding: 12, fontSize: 12, fontFamily: 'monospace', color: COLORS.text, backgroundColor: '#FAFAFA', height: 200, textAlignVertical: 'top', marginBottom: 16 },
   submitBtn: { backgroundColor: COLORS.primary, borderRadius: 10, padding: 14, alignItems: 'center', marginTop: 8 },
   submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  barcodeImageBtn: { backgroundColor: '#FCE4EC', borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 12, borderWidth: 1, borderColor: '#F48FB1' },
 });

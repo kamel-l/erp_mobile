@@ -586,4 +586,71 @@ export const importSaleFromDAT = async (saleData, itemsData) => {
   }
 };
 
+// src/database/database.js
+// Ajouter après les fonctions existantes
+
+// Migration : ajouter colonne image à la table products
+export const migrateAddImageColumn = async () => {
+  try {
+    const tableInfo = await db.getAllAsync("PRAGMA table_info(products)");
+    const hasImageColumn = tableInfo.some(col => col.name === 'image');
+    if (!hasImageColumn) {
+      await db.execAsync("ALTER TABLE products ADD COLUMN image TEXT");
+      console.log("✅ Colonne image ajoutée à products");
+    }
+  } catch (error) {
+    console.error("Erreur migration image column:", error);
+  }
+};
+
+// Mettre à jour l'image d'un produit
+export const updateProductImage = async (productId, imageBase64) => {
+  try {
+    await db.runAsync("UPDATE products SET image = ? WHERE id = ?", [imageBase64, productId]);
+    return true;
+  } catch (error) {
+    console.error("Erreur updateProductImage:", error);
+    return false;
+  }
+};
+
+// Mettre à jour le barcode d'un produit
+export const updateProductBarcode = async (productId, barcode) => {
+  try {
+    await db.runAsync("UPDATE products SET barcode = ? WHERE id = ?", [barcode, productId]);
+    return true;
+  } catch (error) {
+    console.error("Erreur updateProductBarcode:", error);
+    return false;
+  }
+};
+
+// Créer un produit avec image et barcode
+export const addProductWithImage = async (productData) => {
+  try {
+    const result = await db.runAsync(
+      `INSERT INTO products (name, barcode, category, price, stock_quantity, min_stock, description, image, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        productData.name,
+        productData.barcode || null,
+        productData.category || '',
+        productData.price || 0,
+        productData.stock_quantity || 0,
+        productData.min_stock || 0,
+        productData.description || '',
+        productData.image || null,
+        productData.created_at || new Date().toISOString()
+      ]
+    );
+    return result.lastInsertRowId;
+  } catch (error) {
+    console.error("Erreur addProductWithImage:", error);
+    throw error;
+  }
+};
+
+// Appeler la migration au démarrage
+migrateAddImageColumn().catch(console.error);
+
 // Initialiser la base au démarrage de l'app

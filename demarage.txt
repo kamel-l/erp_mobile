@@ -8,3 +8,48 @@ python backend/api_server.py
 npx expo start
 
 npx expo start --lan
+
+npx expo start --clear
+
+# Créer le fichier de workflow
+mkdir .eas\workflows && type nul > .eas\workflows\create-production-builds.yml
+
+name: Production builds
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: 20
+        cache: "npm"
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Configure EAS
+      run: eas login --non-interactive --username "<ton-username>"
+
+    - name: Build production app (Android)
+      run: eas build --platform android --profile production
+
+
+.eas\workflows\create-production-builds.yml
+
+npm run build:production
+
+npx expo run:android
+
+
+npx expo login --username <ton-username>
+
+
+npx expo build:android --profile production

@@ -1,0 +1,108 @@
+{ displaybarcode "1.5 CM POLYAMIDE" qr \3}
+{ displaybarcode "1000 # BR OEUILLET" qr \3}
+{ displaybarcode "11# ANNEAUX" qr \3}
+{ displaybarcode "1400 # MOULE" qr \3}
+{ displaybarcode "1400# M ARGENT OEUILLET" qr \3}
+{ displaybarcode "15 #  LEVIS STRAUSSE JEANS AEGENT" qr \3}
+{ displaybarcode "15 # ETOILE JEANS BRANZE" qr \3}
+{ displaybarcode "15 # FASHION JEANS JEANS ARGENT" qr \3}
+{ displaybarcode "15 # JEANS JEANS BRANZE" qr \3}
+{ displaybarcode "17 #  LEVIS STRAUSSE JEANS ARGENT" qr \3}
+{ displaybarcode "17 # ETOILE JEANE BRANZE" qr \3}
+{ displaybarcode "17 # FASHION JEANS JEANS ARGENT" qr \3}
+{ displaybarcode "17 # JEANS JEANS BEANZE" qr \3}
+{ displaybarcode "2.5  GRIS SATIN" qr \3}
+{ displaybarcode "2.5 BLEU SATIN" qr \3}
+{ displaybarcode "2.5 PINK SATIN" qr \3}
+{ displaybarcode "201 #(C14) MOULE" qr \3}
+{ displaybarcode "2800# BRANZE OEUILLET" qr \3}
+{ displaybarcode "2800# M ARGENT OEUILLET" qr \3}
+{ displaybarcode "2800# NM ARGENT OEUILLET" qr \3}
+{ displaybarcode "3.0 POLYAMIDE" qr \3}
+{ displaybarcode "3.5 BLACK SATIN" qr \3}
+{ displaybarcode "3.5 BLEU SATIN" qr \3}
+{ displaybarcode "3.5 GRIS SATIN" qr \3}
+{ displaybarcode "3.5 PINK SATIN" qr \3}
+{ displaybarcode "3.5 PLY POLYAMIDE" qr \3}
+{ displaybarcode "300 # MOULE" qr \3}
+{ displaybarcode "40*60 MACHINE PRESSE TR" qr \3}
+{ displaybarcode "4000 # MOULE" qr \3}
+{ displaybarcode "4000# M BRANZE OEUILLET" qr \3}
+{ displaybarcode "4000# NM ARGENT OEUILLET" qr \3}
+{ displaybarcode "4000# NM BRANZE OEUILLET" qr \3}
+{ displaybarcode "44 # MOULE" qr \3}
+{ displaybarcode "45*60 F FEUILLE VIDE" qr \3}
+{ displaybarcode "50 # RECOUVRIRE" qr \3}
+{ displaybarcode "600# M ARGENT OEUILLET" qr \3}
+{ displaybarcode "70 # MOULE" qr \3}
+{ displaybarcode "70# RECOUVRIR" qr \3}
+{ displaybarcode "800# M ARGENT OEUILLET" qr \3}
+{ displaybarcode "831 #(P14) MOULE" qr \3}
+{ displaybarcode "9.5# ANNEAUX" qr \3}
+{ displaybarcode "ANNEAUX  11# MOULE" qr \3}
+{ displaybarcode "ATTACHE 35 ATTACHE" qr \3}
+{ displaybarcode "ATTACHE 7 ATTACHE" qr \3}
+{ displaybarcode "B K DTF COLOR INK" qr \3}
+{ displaybarcode "C 14 ARGENT PRESSION" qr \3}
+{ displaybarcode "C 14 BRANZE PRESSION" qr \3}
+{ displaybarcode "C Y DTF COLOR INK" qr \3}
+{ displaybarcode "DTF ROLL FEUILLE" qr \3}
+{ displaybarcode "EMILSION EMULSION" qr \3}
+{ displaybarcode "F 1009 GLISSIER" qr \3}
+{ displaybarcode "F 1115 GLISSIER" qr \3}
+{ displaybarcode "F 1138 GLISSIER" qr \3}
+{ displaybarcode "F 1184 GLISSIER" qr \3}
+{ displaybarcode "F 1200 GLISSIER" qr \3}
+{ displaybarcode "F 1586 GLISSIER" qr \3}
+{ displaybarcode "F 1588 GLISSIER" qr \3}
+{ displaybarcode "F 1602 GLISSIER" qr \3}
+{ displaybarcode "F 1605 GLISSIER" qr \3}
+{ displaybarcode "F 1606 GLISSIER" qr \3}
+{ displaybarcode "F 1727 GLISSIER" qr \3}
+{ displaybarcode "F 2132 GLISSIER" qr \3}
+{ displaybarcode "F 2297 GLISSIER" qr \3}
+{ displaybarcode "F 2302 GLISSIER" qr \3}
+{ displaybarcode "F 2597 GLISSIER" qr \3}
+{ displaybarcode "F 3078 GLISSIER" qr \3}
+{ displaybarcode "F 3308 GLISSIER" qr \3}
+{ displaybarcode "M G DTF COLOR INK" qr \3}
+{ displaybarcode "P 1 PAPIEE" qr \3}
+{ displaybarcode "P 10 PAPIEE" qr \3}
+{ displaybarcode "P 12 PAPIEE" qr \3}
+{ displaybarcode "P 14 PAPIEE" qr \3}
+{ displaybarcode "P 14 ARGENT PRESSION" qr \3}
+{ displaybarcode "P 14 BRANZE PRESSION" qr \3}
+{ displaybarcode "P 3 PAPIEE" qr \3}
+{ displaybarcode "P 36 PAPIEE" qr \3}
+{ displaybarcode "P 38 PAPIEE" qr \3}
+{ displaybarcode "P 4 PAPIEE" qr \3}
+{ displaybarcode "P 40 PAPIEE" qr \3}
+{ displaybarcode "P 42 PAPIEE" qr \3}
+{ displaybarcode "P 44 PAPIEE" qr \3}
+{ displaybarcode "P 46 PAPIEE" qr \3}
+{ displaybarcode "P 48 PAPIEE" qr \3}
+{ displaybarcode "P 5 PAPIEE" qr \3}
+{ displaybarcode "P 52 PAPIEE" qr \3}
+{ displaybarcode "P 54 PAPIEE" qr \3}
+{ displaybarcode "P 6 PAPIEE" qr \3}
+{ displaybarcode "P 8 PAPIEE" qr \3}
+{ displaybarcode "P L PAPIEE" qr \3}
+{ displaybarcode "P M PAPIEE" qr \3}
+{ displaybarcode "P S PAPIEE" qr \3}
+{ displaybarcode "P XL PAPIEE" qr \3}
+{ displaybarcode "P XXL PAPIEE" qr \3}
+{ displaybarcode "P XXXL PAPIEE" qr \3}
+{ displaybarcode "PISTOLET ATTACHE" qr \3}
+{ displaybarcode "POUDRE POUR FEUILLE POUDRE" qr \3}
+{ displaybarcode "PRESSE BTN NOIR MACHINE PRESSION" qr \3}
+{ displaybarcode "PRESSE BTN VERTE MACHINE PRESSION" qr \3}
+{ displaybarcode "SF-084 GLISSIER" qr \3}
+{ displaybarcode "T 676 GLISSIER" qr \3}
+{ displaybarcode "T 8 # MOULE" qr \3}
+{ displaybarcode "T8 BLEU PRESSION" qr \3}
+{ displaybarcode "T8 ROSE PRESSION" qr \3}
+{ displaybarcode "TOPE BOTON METALE" qr \3}
+{ displaybarcode "WHITE DTF COLOR INK" qr \3}
+{ displaybarcode "Y 275 GLISSIER" qr \3}
+{ displaybarcode "Y 402 GLISSIER" qr \3}
+{ displaybarcode "Y L DTF COLOR INK" qr \3}

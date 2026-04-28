@@ -22,6 +22,7 @@ import UserManagementScreen from '../screens/UserManagementScreen';
 import InvoicesScreen from '../screens/InvoicesScreen';
 import SaleDetailScreen from '../screens/SaleDetailScreen';
 import { LoadingView } from '../components/UIComponents';
+import BarcodeImageImportScreen from '../screens/BarcodeImageImportScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -185,6 +186,7 @@ export default function AppNavigator() {
           component={SaleDetailScreen}
           options={{ headerShown: true, title: 'Details de la vente', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '500' } }}
         />
+        <Stack.Screen name="BarcodeImageImport" component={BarcodeImageImportScreen} options={{ title: 'Import images codes-barres' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

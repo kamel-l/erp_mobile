@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, RefreshControl,
-  TouchableOpacity, Alert, ActivityIndicator, TextInput, Modal,
+  TouchableOpacity, Alert, ActivityIndicator, TextInput, Modal, Image,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -275,6 +275,14 @@ export default function StockScreen() {
             return (
               <View key={p.id}>
                 <View style={styles.stockRow}>
+                  {/* Image produit */}
+                  {p.image ? (
+                    <Image source={{ uri: p.image }} style={styles.productImage} />
+                  ) : (
+                    <View style={[styles.productImage, styles.placeholderImage]}>
+                      <Text style={styles.placeholderText}>📦</Text>
+                    </View>
+                  )}
                   <View style={styles.stockInfo}>
                     <Text style={styles.stockName}>{p.name}</Text>
                     <Text style={styles.stockDetail}>
@@ -296,6 +304,7 @@ export default function StockScreen() {
                 </View>
                 {i < filtered.length - 1 && <Divider />}
               </View>
+
             );
           })}
           {filtered.length === 0 && <Text style={styles.emptyText}>Aucun produit trouvé</Text>}
@@ -355,6 +364,7 @@ export default function StockScreen() {
               <TouchableOpacity style={styles.scanBtn} onPress={openScanner}>
                 <Text style={styles.scanBtnText}>📷</Text>
               </TouchableOpacity>
+
             </View>
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.modalCancel} onPress={() => setModalVisible(false)}>
@@ -434,4 +444,7 @@ const styles = StyleSheet.create({
   scannerCloseText: { fontSize: 20, color: '#fff' },
   scanner: { flex: 1 },
   scannerHint: { textAlign: 'center', color: '#fff', padding: 16, backgroundColor: '#111' },
+  productImage: { width: 50, height: 50, borderRadius: 8, marginRight: 10, backgroundColor: '#f0f0f0' },
+  placeholderImage: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0' },
+  placeholderText: { fontSize: 24 },
 });
