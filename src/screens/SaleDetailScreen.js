@@ -8,12 +8,14 @@ import * as Sharing from 'expo-sharing';
 import { COLORS, formatDA } from '../services/theme';
 import { Card, Badge, RowBetween, Divider } from '../components/UIComponents';
 import { getSaleWithItems, updateSaleStatus } from '../database/salesRepository';
+import ReturnFromInvoiceModal from './modals/ReturnFromInvoiceModal';
 
 export default function SaleDetailScreen({ route, navigation }) {
     const { saleId } = route.params;
     const [sale, setSale] = useState(null);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
+    const [returnModalVisible, setReturnModalVisible] = useState(false);
 
     useEffect(() => {
         loadSale();
@@ -168,6 +170,11 @@ export default function SaleDetailScreen({ route, navigation }) {
                 <TouchableOpacity style={[styles.btn, styles.exportBtn]} onPress={exportToPDF} disabled={exporting}>
                     <Text style={styles.btnText}>{exporting ? 'Génération...' : '📎 Exporter PDF'}</Text>
                 </TouchableOpacity>
+                {sale.status !== 'returned' && (
+                    <TouchableOpacity style={[styles.btn, styles.returnBtn]} onPress={() => setReturnModalVisible(true)}>
+                        <Text style={styles.btnText}>↩️ Effectuer un retour</Text>
+                    </TouchableOpacity>
+                )}
                 {sale.status !== 'paid' && (
                     <TouchableOpacity style={[styles.btn, styles.paidBtn]} onPress={() => changeStatus('paid')}>
                         <Text style={styles.btnText}>✓ Marquer payée</Text>
@@ -184,6 +191,16 @@ export default function SaleDetailScreen({ route, navigation }) {
                     </TouchableOpacity>
                 )}
             </View>
+
+            <ReturnFromInvoiceModal
+                visible={returnModalVisible}
+                onClose={() => setReturnModalVisible(false)}
+                sale={sale}
+                onSaved={() => {
+                    loadSale();
+                    setReturnModalVisible(false);
+                }}
+            />
         </ScrollView>
     );
 }
@@ -199,10 +216,11 @@ const styles = StyleSheet.create({
     itemName: { flex: 2 },
     itemTotal: { fontWeight: '500', color: COLORS.primary },
     buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 8 },
-    btn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
+    btn: { flex: 1, minWidth: '45%', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
     paidBtn: { backgroundColor: COLORS.success },
     cancelBtn: { backgroundColor: COLORS.danger },
     pendingBtn: { backgroundColor: COLORS.warning },
     exportBtn: { backgroundColor: COLORS.primary },
+    returnBtn: { backgroundColor: COLORS.danger },
     btnText: { color: '#fff', fontWeight: '600' },
 });

@@ -10,6 +10,7 @@ import {
   Card, SectionTitle, Divider, RowBetween, ProgressBar, Badge,
 } from '../components/UIComponents';
 import NewSaleModal from './modals/NewSaleModal';
+import ReturnFromInvoiceModal from './modals/ReturnFromInvoiceModal';
 import { getLocalSales } from '../database/salesRepository';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -55,6 +56,7 @@ const exportSaleToPDF = async (sale) => {
           .status { display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-top: 15px; }
           .paid { background-color: #111827; color: #fff; }
           .pending { background-color: #f3f4f6; color: #4b5563; }
+          .returned { background-color: #FFEBEE; color: #B71C1C; }
         </style>
       </head>
       <body>
@@ -64,8 +66,8 @@ const exportSaleToPDF = async (sale) => {
             <div class="invoice-meta">
               <strong>N° ${sale.invoice}</strong> &nbsp;•&nbsp; Émise le ${new Date(sale.date).toLocaleDateString('fr-FR')}
             </div>
-            <div class="status ${sale.status === 'paid' ? 'paid' : 'pending'}">
-              ${sale.status === 'paid' ? 'PAYÉE' : 'EN ATTENTE'}
+            <div class="status ${sale.status}">
+              ${sale.status === 'paid' ? 'PAYÉE' : sale.status === 'returned' ? 'RETOUR' : 'EN ATTENTE'}
             </div>
           </div>
           <div class="amount-due-box">
@@ -138,6 +140,7 @@ export default function SalesScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [sales, setSales] = useState([]);
   const [newSaleVisible, setNewSaleVisible] = useState(false);
+  const [returnModalVisible, setReturnModalVisible] = useState(false);
   const [selectedSale, setSelectedSale] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [clientModalVisible, setClientModalVisible] = useState(false);
@@ -165,6 +168,7 @@ export default function SalesScreen({ navigation }) {
   const totalCA = sales.reduce((sum, s) => sum + (s.total || 0), 0);
   const paidCount = sales.filter(s => s.status === 'paid').length;
   const pendingCount = sales.filter(s => s.status === 'pending').length;
+  const returnCount = sales.filter(s => s.status === 'returned').length;
 
   const openSaleDetail = (sale) => {
     setSelectedSale(sale);
@@ -240,6 +244,8 @@ export default function SalesScreen({ navigation }) {
           <Divider />
           <RowBetween><Text style={styles.statLabel}>En attente</Text><Text style={[styles.statValue, { color: COLORS.warning }]}>{pendingCount}</Text></RowBetween>
           <Divider />
+          <RowBetween><Text style={styles.statLabel}>Retours</Text><Text style={[styles.statValue, { color: COLORS.danger }]}>{returnCount}</Text></RowBetween>
+          <Divider />
           <RowBetween style={{ marginBottom: 4 }}><Text style={styles.statLabel}>Taux recouvrement</Text><Text style={[styles.statValue, { color: COLORS.success }]}>{sales.length ? Math.round((paidCount / sales.length) * 100) : 0}%</Text></RowBetween>
           <ProgressBar value={sales.length ? (paidCount / sales.length) * 100 : 0} max={100} color={COLORS.success} />
         </Card>
@@ -282,7 +288,7 @@ export default function SalesScreen({ navigation }) {
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Statut :</Text>
-                  <Badge status={selectedSale.status === 'paid' ? 'paid' : 'pending'} />
+                  <Badge status={selectedSale.status} />
                 </View>
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Total TTC :</Text>
@@ -306,6 +312,18 @@ export default function SalesScreen({ navigation }) {
                 <TouchableOpacity style={styles.pdfBtn} onPress={() => exportSaleToPDF(selectedSale)}>
                   <Text style={styles.pdfBtnText}>📄 Exporter en PDF</Text>
                 </TouchableOpacity>
+
+                {selectedSale.status !== 'returned' && (
+                  <TouchableOpacity 
+                    style={[styles.pdfBtn, { backgroundColor: COLORS.danger, marginTop: 8 }]} 
+                    onPress={() => {
+                      setModalVisible(false);
+                      setTimeout(() => setReturnModalVisible(true), 300);
+                    }}
+                  >
+                    <Text style={styles.pdfBtnText}>↩️ Effectuer un retour</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
           </View>
@@ -343,7 +361,7 @@ export default function SalesScreen({ navigation }) {
                   >
                     <View style={styles.invoiceCardHeader}>
                       <Text style={styles.invoiceCardTitle}>{sale.invoice}</Text>
-                      <Badge status={sale.status === 'paid' ? 'paid' : 'pending'} />
+                      <Badge status={sale.status} />
                     </View>
                     <View style={styles.invoiceCardBody}>
                       <Text style={styles.invoiceCardDate}>📅 {new Date(sale.date).toLocaleDateString('fr-FR')}</Text>
@@ -363,6 +381,16 @@ export default function SalesScreen({ navigation }) {
         onSaved={() => {
           loadSales();
           setNewSaleVisible(false);
+        }}
+      />
+
+      <ReturnFromInvoiceModal
+        visible={returnModalVisible}
+        onClose={() => setReturnModalVisible(false)}
+        sale={selectedSale}
+        onSaved={() => {
+          loadSales();
+          setReturnModalVisible(false);
         }}
       />
     </View>

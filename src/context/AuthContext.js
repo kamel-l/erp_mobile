@@ -13,21 +13,8 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Vérifier si un token existe au démarrage
-    (async () => {
-      try {
-        const userData = await SecureStore.getItemAsync('user_data');
-        if (userData) {
-          const parsedUser = JSON.parse(userData);
-          setUser(parsedUser);
-          await setCurrentUser(parsedUser);
-        }
-      } catch {
-        // Pas de session sauvegardée
-      } finally {
-        setLoading(false);
-      }
-    })();
+    // Désactiver le chargement automatique de la session pour forcer la page de login
+    setLoading(false);
   }, []);
 
   const login = async (username, password) => {

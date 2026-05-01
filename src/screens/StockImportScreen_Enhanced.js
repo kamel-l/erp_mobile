@@ -291,11 +291,26 @@ export default function StockImportScreen({ navigation }) {
     const itemsForImport = [];
 
     for (let i = 1; i <= itemCount; i++) {
-      // Récupération du code-barres
-      const code = (params[`Item${i}Code`] || '').trim();
+      // Récupération du code-barres (plusieurs clés possibles)
+      const code = (
+        params[`Item${i}Code`] || 
+        params[`Item${i}Barcode`] || 
+        params[`Item${i}BarCode`] || 
+        params[`Item${i}Ref`] || 
+        ''
+      ).trim();
 
       // Récupération du nom : essayer plusieurs clés possibles
-      let name = (params[`Item${i}Name`] || params[`Item${i}Code`] || params[`Item${i}Description`] || params[`Item${i}Product`] || '').trim();
+      let name = (
+        params[`Item${i}Name`] || 
+        params[`Item${i}Description`] || 
+        params[`Item${i}Product`] || 
+        params[`Item${i}Designation`] || 
+        params[`Item${i}Label`] || 
+        code || 
+        ''
+      ).trim();
+      
       if (!name) {
         console.warn(`⚠️ Aucun nom trouvé pour l'article ${i}, les clés disponibles :`, Object.keys(params).filter(k => k.includes(`Item${i}`)));
         name = `Article ${i}`;
