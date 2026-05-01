@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { COLORS } from '../services/theme';
@@ -146,6 +146,40 @@ function MainTabs({ navigation }) {
       >
         {(props) => <ProfileScreen {...props} onLogout={logout} />}
       </Tab.Screen>
+
+      <Tab.Screen
+        name="Invoices"
+        component={InvoicesScreen}
+        options={{ 
+          title: 'Toutes les factures', 
+          tabBarButton: () => null,
+          headerLeft: () => {
+            const nav = useNavigation();
+            return (
+              <TouchableOpacity onPress={() => nav.goBack()} style={{ paddingLeft: 16 }}>
+                <Text style={{ fontSize: 24, color: '#fff', fontWeight: 'bold' }}>←</Text>
+              </TouchableOpacity>
+            );
+          }
+        }}
+      />
+
+      <Tab.Screen
+        name="SaleDetail"
+        component={SaleDetailScreen}
+        options={{ 
+          title: 'Détails de la vente', 
+          tabBarButton: () => null,
+          headerLeft: () => {
+            const nav = useNavigation();
+            return (
+              <TouchableOpacity onPress={() => nav.goBack()} style={{ paddingLeft: 16 }}>
+                <Text style={{ fontSize: 24, color: '#fff', fontWeight: 'bold' }}>←</Text>
+              </TouchableOpacity>
+            );
+          }
+        }}
+      />
     </Tab.Navigator>
   );
 }
@@ -167,11 +201,6 @@ export default function AppNavigator() {
         )}
         <Stack.Screen name="StockImport" component={StockImportScreen} options={{ title: 'Import/Export Stock' }} />
         <Stack.Screen
-          name="Invoices"
-          component={InvoicesScreen}
-          options={{ title: 'Toutes les factures', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff' }}
-        />
-        <Stack.Screen
           name="UserManagement"
           component={UserManagementScreen}
           options={{ headerShown: true, title: 'Gestion utilisateurs', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff' }}
@@ -180,11 +209,6 @@ export default function AppNavigator() {
           name="Notifications"
           component={NotificationsScreen}
           options={{ headerShown: true, title: 'Notifications', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '500' } }}
-        />
-        <Stack.Screen
-          name="SaleDetail"
-          component={SaleDetailScreen}
-          options={{ headerShown: true, title: 'Details de la vente', headerStyle: { backgroundColor: COLORS.primary }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '500' } }}
         />
         <Stack.Screen name="BarcodeImageImport" component={BarcodeImageImportScreen} options={{ title: 'Import images codes-barres' }} />
       </Stack.Navigator>
