@@ -25,7 +25,7 @@ import {
 import { getLocalSales, saveSaleLocally } from '../database/salesRepository';
 
 // ========== CONFIGURATION ==========
-const BASE_URL = 'http://192.168.1.65:5000'; // À adapter à votre serveur
+const BASE_URL = 'http://192.168.1.65:5000/api'; // Correction : ajout de /api pour correspondre au backend Flask
 
 const api = axios.create({
   baseURL: BASE_URL,

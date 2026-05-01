@@ -14,7 +14,7 @@ import {
   Card, KpiCard, Badge, SectionTitle, Divider,
   ProgressBar, SearchBar,
 } from '../components/UIComponents';
-import { getLocalProducts, saveProductsLocally, getProductByBarcode } from '../database/database';
+import { getLocalProducts, saveProductsLocally, getProductByBarcode, updateProduct, deleteProduct, addProductWithImage } from '../database/database';
 
 const DEFAULT_STOCK = [
   { id: 1, name: 'Ordinateur HP ProBook', barcode: 'HP001', category: 'Informatique', price: 75000, stock_quantity: 2, min_stock: 2 },
@@ -33,6 +33,7 @@ export default function StockScreen() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
+  const [editingProductId, setEditingProductId] = useState(null);
   const [newProduct, setNewProduct] = useState({
     name: '',
     barcode: '',
@@ -103,7 +104,7 @@ export default function StockScreen() {
     return 'ok';
   };
 
-  const addProduct = async () => {
+  const saveProduct = async () => {
     if (!newProduct.name.trim()) {
       Alert.alert('Erreur', 'Le nom du produit est obligatoire');
       return;
@@ -116,17 +117,7 @@ export default function StockScreen() {
     const stockQty = parseInt(newProduct.stock_quantity) || 0;
     const minStock = parseInt(newProduct.min_stock) || 0;
 
-    // Vérifier si le code-barres existe déjà
-    if (newProduct.barcode.trim()) {
-      const existing = await getProductByBarcode(newProduct.barcode.trim());
-      if (existing) {
-        Alert.alert('Erreur', 'Un produit avec ce code-barres existe déjà');
-        return;
-      }
-    }
-
-    const product = {
-      id: Date.now() + Math.random(),
+    const productData = {
       name: newProduct.name.trim(),
       barcode: newProduct.barcode.trim() || '',
       category: newProduct.category.trim() || 'Non catégorisé',
@@ -135,16 +126,74 @@ export default function StockScreen() {
       min_stock: minStock,
     };
 
-    const updatedProducts = [...products, product];
+    setLoading(true);
     try {
-      await saveProductsLocally(updatedProducts);
+      if (editingProductId) {
+        if (newProduct.barcode.trim()) {
+          const existing = await getProductByBarcode(newProduct.barcode.trim());
+          if (existing && existing.id !== editingProductId) {
+            Alert.alert('Erreur', 'Un produit avec ce code-barres existe déjà');
+            setLoading(false);
+            return;
+          }
+        }
+        await updateProduct(editingProductId, productData);
+        Alert.alert('Succès', 'Produit modifié avec succès');
+      } else {
+        if (newProduct.barcode.trim()) {
+          const existing = await getProductByBarcode(newProduct.barcode.trim());
+          if (existing) {
+            Alert.alert('Erreur', 'Un produit avec ce code-barres existe déjà');
+            setLoading(false);
+            return;
+          }
+        }
+        await addProductWithImage(productData);
+        Alert.alert('Succès', 'Produit ajouté avec succès');
+      }
+
       await loadProducts();
       setModalVisible(false);
       setNewProduct({ name: '', barcode: '', category: '', price: '', stock_quantity: '', min_stock: '' });
-      Alert.alert('Succès', 'Produit ajouté avec succès');
+      setEditingProductId(null);
     } catch (error) {
       Alert.alert('Erreur', error.message);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const openEditModal = (p) => {
+    setEditingProductId(p.id);
+    setNewProduct({
+      name: p.name,
+      barcode: p.barcode || '',
+      category: p.category || '',
+      price: p.price ? p.price.toString() : '0 DA',
+      stock_quantity: p.stock_quantity ? p.stock_quantity.toString() : '0',
+      min_stock: p.min_stock ? p.min_stock.toString() : '0',
+    });
+    setModalVisible(true);
+  };
+
+  const handleDelete = (id) => {
+    Alert.alert('Confirmer', 'Voulez-vous vraiment supprimer ce produit ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Supprimer', style: 'destructive', onPress: async () => {
+          setLoading(true);
+          try {
+            await deleteProduct(id);
+            await loadProducts();
+            Alert.alert('Succès', 'Produit supprimé avec succès');
+          } catch (e) {
+            Alert.alert('Erreur', 'Erreur lors de la suppression du produit');
+          } finally {
+            setLoading(false);
+          }
+        }
+      }
+    ]);
   };
 
   const handleBarCodeScanned = ({ data }) => {
@@ -253,7 +302,11 @@ export default function StockScreen() {
           <TouchableOpacity style={styles.importButton} onPress={importFromFile}>
             <Text style={styles.importButtonText}>📁 Fichier</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.importButton} onPress={() => setModalVisible(true)}>
+          <TouchableOpacity style={styles.importButton} onPress={() => {
+            setEditingProductId(null);
+            setNewProduct({ name: '', barcode: '', category: '', price: '', stock_quantity: '', min_stock: '' });
+            setModalVisible(true);
+          }}>
             <Text style={styles.importButtonText}>➕ Ajouter</Text>
           </TouchableOpacity>
         </View>
@@ -299,7 +352,15 @@ export default function StockScreen() {
                   <View style={styles.stockQty}>
                     <Text style={[styles.qtyNum, { color: dotColor }]}>{p.stock_quantity}</Text>
                     <Text style={styles.qtyLabel}>/ min {p.min_stock}</Text>
-                    <Badge status={status} style={{ marginTop: 4 }} />
+                    <Badge status={status} style={{ marginTop: 4, marginBottom: 8 }} />
+                    <View style={styles.actionButtons}>
+                      <TouchableOpacity onPress={() => openEditModal(p)} style={styles.actionBtn}>
+                        <Text style={styles.actionTextEdit}>✏️</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => handleDelete(p.id)} style={styles.actionBtn}>
+                        <Text style={styles.actionTextDelete}>🗑️</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 </View>
                 {i < filtered.length - 1 && <Divider />}
@@ -311,25 +372,29 @@ export default function StockScreen() {
         </Card>
       </ScrollView>
 
-      {/* Modal d'ajout de produit avec scan */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={() => {
+          setModalVisible(false);
+          setEditingProductId(null);
+        }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>➕ Ajouter un produit</Text>
+            <Text style={styles.modalTitle}>{editingProductId ? '✏️ Modifier un produit' : '➕ Ajouter un produit'}</Text>
             <TextInput
               style={styles.input}
               placeholder="Nom du produit *"
+              placeholderTextColor="#999"
               value={newProduct.name}
               onChangeText={text => setNewProduct({ ...newProduct, name: text })}
             />
             <TextInput
               style={styles.input}
               placeholder="Prix (DA) *"
+              placeholderTextColor="#999"
               value={newProduct.price}
               onChangeText={text => setNewProduct({ ...newProduct, price: text })}
               keyboardType="numeric"
@@ -337,6 +402,7 @@ export default function StockScreen() {
             <TextInput
               style={styles.input}
               placeholder="Quantité en stock"
+              placeholderTextColor="#999"
               value={newProduct.stock_quantity}
               onChangeText={text => setNewProduct({ ...newProduct, stock_quantity: text })}
               keyboardType="numeric"
@@ -344,6 +410,7 @@ export default function StockScreen() {
             <TextInput
               style={styles.input}
               placeholder="Stock minimum"
+              placeholderTextColor="#999"
               value={newProduct.min_stock}
               onChangeText={text => setNewProduct({ ...newProduct, min_stock: text })}
               keyboardType="numeric"
@@ -351,6 +418,7 @@ export default function StockScreen() {
             <TextInput
               style={styles.input}
               placeholder="Catégorie (optionnel)"
+              placeholderTextColor="#999"
               value={newProduct.category}
               onChangeText={text => setNewProduct({ ...newProduct, category: text })}
             />
@@ -358,6 +426,7 @@ export default function StockScreen() {
               <TextInput
                 style={[styles.input, { flex: 1 }]}
                 placeholder="Code-barres (optionnel)"
+                placeholderTextColor="#999"
                 value={newProduct.barcode}
                 onChangeText={text => setNewProduct({ ...newProduct, barcode: text })}
               />
@@ -367,11 +436,14 @@ export default function StockScreen() {
 
             </View>
             <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setModalVisible(false)}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => {
+                setModalVisible(false);
+                setEditingProductId(null);
+              }}>
                 <Text style={styles.modalCancelText}>Annuler</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalConfirm} onPress={addProduct}>
-                <Text style={styles.modalConfirmText}>Ajouter</Text>
+              <TouchableOpacity style={styles.modalConfirm} onPress={saveProduct}>
+                <Text style={styles.modalConfirmText}>{editingProductId ? 'Enregistrer' : 'Ajouter'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -447,4 +519,8 @@ const styles = StyleSheet.create({
   productImage: { width: 50, height: 50, borderRadius: 8, marginRight: 10, backgroundColor: '#f0f0f0' },
   placeholderImage: { justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0' },
   placeholderText: { fontSize: 24 },
+  actionButtons: { flexDirection: 'row', gap: 8, marginTop: 8, justifyContent: 'flex-end' },
+  actionBtn: { padding: 4 },
+  actionTextEdit: { fontSize: 16 },
+  actionTextDelete: { fontSize: 16 },
 });

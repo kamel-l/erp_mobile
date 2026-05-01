@@ -12,7 +12,7 @@ export const addToPendingSync = async (type, recordId, data) => {
   }
 };
 
-export const saveSaleLocally = async (sale, items) => {
+export const saveSaleLocally = async (sale, items, isReturn = false) => {
   try {
     const result = await db.runAsync(
       `INSERT INTO sales (invoice, client_id, client_name, total, status, date, synced, created_at)
@@ -44,13 +44,13 @@ export const saveSaleLocally = async (sale, items) => {
 
       if (item.product_id) {
         await db.runAsync(
-          `UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?`,
+          `UPDATE products SET stock_quantity = stock_quantity ${isReturn ? '+' : '-'} ? WHERE id = ?`,
           item.quantity,
           item.product_id
         );
       } else if (item.barcode) {
         await db.runAsync(
-          `UPDATE products SET stock_quantity = stock_quantity - ? WHERE barcode = ?`,
+          `UPDATE products SET stock_quantity = stock_quantity ${isReturn ? '+' : '-'} ? WHERE barcode = ?`,
           item.quantity,
           item.barcode
         );

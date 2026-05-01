@@ -11,6 +11,7 @@ import {
   getLocalClients,
   saveClientsLocally,
   getProductByBarcode,
+  findProductByAny,
 } from '../../database/database';
 import { calculateSaleTotals, savePreparedSale, validateSaleDraft } from '../../services/salesService';
 
@@ -111,13 +112,38 @@ export default function NewSaleModal({ visible, onClose, onSaved, initialClient 
 
   const searchProductByBarcode = async (code) => {
     if (!code) return;
+    let trimmedCode = code.trim();
+
+    // --- NETTOYAGE DU CODE ---
+    // Si le code ressemble à une commande de champ (ex: { displaybarcode "REF" ... })
+    // On essaie d'extraire ce qui est entre guillemets
+    const quoteMatch = trimmedCode.match(/"([^"]+)"/);
+    if (quoteMatch) {
+      trimmedCode = quoteMatch[1].trim();
+    } else {
+      // Sinon on nettoie les caractères spéciaux inutiles en début/fin
+      trimmedCode = trimmedCode.replace(/^[{]+|[\s}]+$/g, '').trim();
+    }
+
     try {
-      const product = await getProductByBarcode(code.trim());
+      // 1. Essayer par barcode exact
+      let product = await getProductByBarcode(trimmedCode);
+      
+      // 2. Si pas trouvé, essayer une recherche plus large (nom ou barcode partiel)
+      if (!product) {
+        product = await findProductByAny(trimmedCode);
+      }
+
       if (product) {
+        // Vérifier si le produit a du stock avant d'ouvrir le modal ? 
+        // Non, on l'ouvre quand même pour que l'utilisateur voit l'erreur de stock s'il y en a une.
         openProductModal(product);
         setBarcode('');
       } else {
-        Alert.alert('Non trouve', 'Aucun produit avec ce code-barres');
+        Alert.alert(
+          'Produit non trouvé', 
+          `Aucun produit ne correspond au code "${trimmedCode}".\n\nVérifiez que le stock est bien importé ou ajoutez le produit manuellement.`
+        );
       }
     } catch (error) {
       Alert.alert('Erreur', error.message);

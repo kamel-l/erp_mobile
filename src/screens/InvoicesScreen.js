@@ -44,6 +44,7 @@ export default function InvoicesScreen({ navigation }) {
         setRefreshing(false);
     };
 
+
     const filtered = sales.filter(s =>
         (s.invoice && s.invoice.toLowerCase().includes(search.toLowerCase())) ||
         (s.client_name && s.client_name.toLowerCase().includes(search.toLowerCase()))
@@ -51,41 +52,64 @@ export default function InvoicesScreen({ navigation }) {
 
     const renderListItem = ({ item: sale, index }) => {
         const av = AVATAR_COLORS[index % AVATAR_COLORS.length];
+        const isReturn = sale.status === 'returned';
+        
         return (
-            <TouchableOpacity onPress={() => navigation.navigate('SaleDetail', { saleId: sale.id })} activeOpacity={0.7}>
+            <TouchableOpacity 
+                style={[styles.listCard, isReturn && styles.returnCard]} 
+                onPress={() => navigation.navigate('SaleDetail', { saleId: sale.id })} 
+                activeOpacity={0.7}
+            >
                 <View style={styles.saleRow}>
-                    <Avatar initials={sale.initials || sale.client_name?.substring(0, 2) || 'CL'} bg={av.bg} textColor={av.text} />
+                    <Avatar initials={sale.initials || sale.client_name?.substring(0, 2) || 'CL'} bg={av.bg} textColor={av.text} size={46} />
                     <View style={styles.saleInfo}>
-                        <Text style={styles.saleName}>{sale.invoice} — {sale.client_name}</Text>
+                        <View style={styles.saleNameContainer}>
+                            <Text style={styles.saleName}>{sale.invoice}</Text>
+                            <Text style={styles.saleClientName} numberOfLines={1}> • {sale.client_name}</Text>
+                        </View>
                         <Text style={styles.saleSub}>
-                            {`${(sale.items && sale.items.length) || 0} article(s) • ${sale.date || ''}`}
+                            📅 {sale.date ? new Date(sale.date).toLocaleDateString('fr-FR') : ''}  |  📦 {(sale.items && sale.items.length) || 0} article(s)
                         </Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                    <View style={styles.saleActions}>
                         <Text style={[styles.saleAmount, {
                             color: sale.status === 'paid' ? COLORS.success :
-                                sale.status === 'cancelled' ? COLORS.danger : COLORS.primary
+                                sale.status === 'cancelled' || sale.status === 'returned' ? COLORS.danger : COLORS.primary
                         }]}>{formatDA(sale.total || 0)}</Text>
                         <Badge status={sale.status || 'pending'} />
                     </View>
                 </View>
-                <Divider />
             </TouchableOpacity>
         );
     };
 
-    const renderGridItem = ({ item: sale }) => (
-        <TouchableOpacity style={styles.gridCard} onPress={() => navigation.navigate('SaleDetail', { saleId: sale.id })} activeOpacity={0.7}>
-            <View style={styles.gridHeader}>
-                <Text style={styles.gridInvoice}>{sale.invoice}</Text>
-                <Badge status={sale.status || 'pending'} />
-            </View>
-            <Text style={styles.gridClient}>{sale.client_name}</Text>
-            <Text style={styles.gridDate}>{sale.date || ''}</Text>
-            <Text style={styles.gridTotal}>{formatDA(sale.total || 0)}</Text>
-            <Text style={styles.gridItems}>{`${(sale.items && sale.items.length) || 0} article(s)`}</Text>
-        </TouchableOpacity>
-    );
+    const renderGridItem = ({ item: sale }) => {
+        const isReturn = sale.status === 'returned';
+        return (
+            <TouchableOpacity 
+                style={[styles.gridCard, isReturn && styles.returnCard]} 
+                onPress={() => navigation.navigate('SaleDetail', { saleId: sale.id })} 
+                activeOpacity={0.7}
+            >
+                <View style={styles.gridHeader}>
+                    <Text style={styles.gridInvoice}>{sale.invoice}</Text>
+                    <Badge status={sale.status || 'pending'} />
+                </View>
+                <Text style={styles.gridClient} numberOfLines={1}>{sale.client_name}</Text>
+                
+                <View style={styles.gridFooter}>
+                    <View>
+                        <Text style={styles.gridDate}>📅 {sale.date ? new Date(sale.date).toLocaleDateString('fr-FR') : ''}</Text>
+                        <Text style={styles.gridItems}>📦 {(sale.items && sale.items.length) || 0} article(s)</Text>
+                    </View>
+                    <Text style={[styles.gridTotal, {
+                        color: sale.status === 'paid' ? COLORS.success :
+                            sale.status === 'cancelled' || sale.status === 'returned' ? COLORS.danger : COLORS.primary
+                    }]}>{formatDA(sale.total || 0)}</Text>
+                </View>
+            </TouchableOpacity>
+        );
+    };
 
     const HeaderComponent = () => (
         <View style={styles.content}>
@@ -118,21 +142,31 @@ export default function InvoicesScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-    content: { paddingHorizontal: 14 },
-    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-    viewToggle: { backgroundColor: COLORS.primaryLight, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
-    viewToggleText: { color: COLORS.primaryDark, fontWeight: '500', fontSize: 12 },
-    saleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, paddingHorizontal: 14 },
-    saleInfo: { flex: 1, minWidth: 0 },
-    saleName: { fontSize: 14, fontWeight: '500', color: COLORS.text },
-    saleSub: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-    saleAmount: { fontSize: 14, fontWeight: '500' },
-    gridColumnWrapper: { justifyContent: 'space-between', paddingHorizontal: 14, gap: 12 },
-    gridCard: { flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 0.5, borderColor: '#E0E0E0', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 },
-    gridHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    gridInvoice: { fontSize: 14, fontWeight: 'bold', color: COLORS.text },
-    gridClient: { fontSize: 13, color: COLORS.text, marginBottom: 4 },
-    gridDate: { fontSize: 11, color: COLORS.textSecondary, marginBottom: 4 },
-    gridTotal: { fontSize: 14, fontWeight: '600', color: COLORS.primary, marginTop: 4 },
-    gridItems: { fontSize: 10, color: COLORS.textSecondary, marginTop: 2 },
+    content: { paddingHorizontal: 16, paddingTop: 10 },
+    sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginTop: 4 },
+    viewToggle: { backgroundColor: COLORS.primaryLight, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 1 },
+    viewToggleText: { color: COLORS.primaryDark, fontWeight: '600', fontSize: 13, letterSpacing: 0.3 },
+    
+    // LIST MODE
+    listCard: { backgroundColor: '#fff', borderRadius: 16, marginBottom: 14, paddingHorizontal: 16, paddingVertical: 14, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2, borderWidth: 1, borderColor: '#F0F0F0' },
+    returnCard: { borderColor: '#FFCDD2', backgroundColor: '#FFFAFA' },
+    saleRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    saleInfo: { flex: 1, minWidth: 0, justifyContent: 'center' },
+    saleNameContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+    saleName: { fontSize: 16, fontWeight: '700', color: COLORS.text, letterSpacing: 0.2 },
+    saleClientName: { fontSize: 14, color: COLORS.textSecondary, flexShrink: 1 },
+    saleSub: { fontSize: 12, color: '#888', fontWeight: '500' },
+    saleActions: { alignItems: 'flex-end', gap: 6 },
+    saleAmount: { fontSize: 16, fontWeight: '800', letterSpacing: 0.2 },
+    
+    // GRID MODE
+    gridColumnWrapper: { justifyContent: 'space-between', paddingHorizontal: 16, gap: 14 },
+    gridCard: { flex: 1, backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: '#F0F0F0', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8 },
+    gridHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+    gridInvoice: { fontSize: 15, fontWeight: '800', color: COLORS.text, letterSpacing: 0.3 },
+    gridClient: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary, marginBottom: 12 },
+    gridFooter: { marginTop: 'auto', borderTopWidth: 1, borderTopColor: '#F5F5F5', paddingTop: 10 },
+    gridDate: { fontSize: 11, color: '#888', marginBottom: 4, fontWeight: '500' },
+    gridItems: { fontSize: 11, color: '#888', fontWeight: '500' },
+    gridTotal: { fontSize: 16, fontWeight: '800', marginTop: 8, textAlign: 'right' },
 });

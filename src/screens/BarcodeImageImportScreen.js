@@ -4,15 +4,15 @@ import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
     Alert, ActivityIndicator, FlatList, Image,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { Camera } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { COLORS } from '../services/theme';
 import { Card, Divider, ProgressBar } from '../components/UIComponents';
 import {
     getLocalProducts,
     updateProductImage,
+    updateProductBarcode,
 } from '../database/database';
 
 const MAX_IMAGE_SIZE_KB = 300;
@@ -55,20 +55,56 @@ export default function BarcodeImageImportScreen({ navigation }) {
     const [results, setResults] = useState([]);
 
     const pickImages = async () => {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert('Permission refusée', 'Autorisez l\'accès à la galerie');
-            return;
-        }
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ['images'],
-            allowsMultipleSelection: true,
-            quality: 0.8,
-        });
-        if (!result.canceled) {
-            setImages(result.assets);
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: 'image/*',
+                multiple: true,
+                copyToCacheDirectory: true,
+            });
+
+            if (result.canceled) return;
+
+            // Normaliser le résultat (assets ou fichier unique)
+            const files = result.assets || (result.uri ? [result] : []);
+
+            if (files.length === 0) return;
+
+            // Construire des objets compatibles avec le reste du code
+            const assets = files.map(file => ({
+                uri: file.uri,
+                // DocumentPicker préserve le vrai nom de fichier original
+                fileName: file.name || file.fileName || `image_${Date.now()}.jpg`,
+            }));
+
+            setImages(assets);
             setResults([]);
+        } catch (error) {
+            Alert.alert('Erreur', `Impossible d'ouvrir la galerie : ${error.message}`);
         }
+    };
+
+    // ─── Normalise une chaîne pour la comparaison ───────────────────────────────
+    const normalizeStr = (str) => {
+        if (!str) return '';
+        return str
+            .toLowerCase()
+            .replace(/[#\-_.,;:!?()[\]{}'"\/\\|@&*%$^~`+=<>]/g, ' ') // remplace les caractères spéciaux par un espace
+            .replace(/\s+/g, ' ')  // plusieurs espaces → un seul
+            .trim();
+    };
+
+    // ─── Score de similarité entre deux chaînes normalisées ──────────────────────
+    const matchScore = (a, b) => {
+        const na = normalizeStr(a);
+        const nb = normalizeStr(b);
+        if (na === nb) return 100;                   // correspondance exacte
+        if (na.includes(nb) || nb.includes(na)) return 80; // l'un contient l'autre
+        // Comparer mot par mot
+        const wordsA = na.split(' ').filter(Boolean);
+        const wordsB = nb.split(' ').filter(Boolean);
+        const commonWords = wordsA.filter(w => wordsB.includes(w));
+        if (commonWords.length === 0) return 0;
+        return Math.round((commonWords.length / Math.max(wordsA.length, wordsB.length)) * 70);
     };
 
     const processImages = async () => {
@@ -78,7 +114,6 @@ export default function BarcodeImageImportScreen({ navigation }) {
         const newResults = [];
         let processed = 0;
 
-        // Charger tous les produits existants une fois
         const allProducts = await getLocalProducts();
 
         for (const asset of images) {
@@ -89,23 +124,46 @@ export default function BarcodeImageImportScreen({ navigation }) {
                 let message = '';
                 let linkedProduct = null;
 
-                // Rechercher un produit dont le nom ou le barcode correspond au nom du fichier
-                const matchedProduct = allProducts.find(p => {
-                    const productName = (p.name || '').toLowerCase();
-                    const productBarcode = (p.barcode || '').toLowerCase();
-                    return productName.includes(baseName) || productBarcode === baseName;
-                });
+                // Trouver le produit avec le meilleur score de correspondance
+                let bestScore = 0;
+                let bestProduct = null;
 
-                if (matchedProduct) {
-                    // Associer l'image
+                for (const p of allProducts) {
+                    // Comparer avec le nom du produit
+                    const scoreByName = matchScore(p.name, baseName);
+                    // Comparer avec le code-barres
+                    const scoreByBarcode = normalizeStr(p.barcode) === normalizeStr(baseName) ? 100 : 0;
+
+                    const score = Math.max(scoreByName, scoreByBarcode);
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestProduct = p;
+                    }
+                }
+
+                // Seuil minimum : 60% de correspondance
+                if (bestProduct && bestScore >= 60) {
                     const imageBase64 = await imageToBase64(asset.uri);
-                    await updateProductImage(matchedProduct.id, imageBase64);
+                    await updateProductImage(bestProduct.id, imageBase64);
+
+                    // --- NOUVEAU : Si le produit n'a pas de code-barres et le nom de fichier ressemble à un code-barres ---
+                    const isBarcodeLike = /^\d{8,14}$/.test(baseName); // 8 à 14 chiffres
+                    if (!bestProduct.barcode && isBarcodeLike) {
+                        await updateProductBarcode(bestProduct.id, baseName);
+                        message = `✅ Image et Code-barres associés à "${bestProduct.name}"`;
+                    } else {
+                        message = `✅ Image associée à "${bestProduct.name}" (score: ${bestScore}%)`;
+                    }
+                    
                     status = 'linked';
-                    message = `Image associée au produit "${matchedProduct.name}"`;
-                    linkedProduct = matchedProduct;
+                    linkedProduct = bestProduct;
                 } else {
                     status = 'not_found';
-                    message = `Aucun produit trouvé pour "${baseName}" → ignoré`;
+                    const bestInfo = bestProduct
+                        ? ` (meilleur candidat: "${bestProduct.name}", score: ${bestScore}%)`
+                        : '';
+                    message = `❌ Aucun produit trouvé pour "${baseName}"${bestInfo}`;
                 }
 
                 newResults.push({

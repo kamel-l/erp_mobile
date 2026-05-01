@@ -204,6 +204,40 @@ export const getProductByBarcode = async (barcode) => {
   }
 };
 
+export const findProductByAny = async (query) => {
+  try {
+    // 1. Essayer par barcode exact
+    let result = await db.getFirstAsync('SELECT * FROM products WHERE barcode = ?', query);
+    if (result) return result;
+
+    // 2. Essayer par nom exact
+    result = await db.getFirstAsync('SELECT * FROM products WHERE name = ?', query);
+    if (result) return result;
+
+    // 3. Essayer par barcode partiel ou nom partiel (LIKE)
+    result = await db.getFirstAsync('SELECT * FROM products WHERE barcode LIKE ? OR name LIKE ? LIMIT 1', [`%${query}%`, `%${query}%`]);
+    if (result) return result;
+
+    // 4. Si multi-mots, essayer de chercher chaque mot (recherche plus floue)
+    const words = query.split(/\s+/).filter(w => w.length > 2);
+    if (words.length > 1) {
+      // Chercher un produit qui contient TOUS les mots longs (AND)
+      const conditions = words.map(() => '(name LIKE ? OR barcode LIKE ?)').join(' AND ');
+      const params = [];
+      words.forEach(w => {
+        params.push(`%${w}%`);
+        params.push(`%${w}%`);
+      });
+      result = await db.getFirstAsync(`SELECT * FROM products WHERE ${conditions} LIMIT 1`, params);
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Erreur findProductByAny:', error);
+    return null;
+  }
+};
+
 export const updateProductStock = async (productId, newStock) => {
   try {
     await db.runAsync('UPDATE products SET stock_quantity = ? WHERE id = ?', newStock, productId);
@@ -213,6 +247,37 @@ export const updateProductStock = async (productId, newStock) => {
     return false;
   }
 };
+
+export const updateProduct = async (productId, productData) => {
+  try {
+    await db.runAsync(
+      `UPDATE products SET name = ?, barcode = ?, category = ?, price = ?, stock_quantity = ?, min_stock = ?, description = ? WHERE id = ?`,
+      productData.name,
+      productData.barcode || null,
+      productData.category || null,
+      productData.price,
+      productData.stock_quantity || 0,
+      productData.min_stock || 0,
+      productData.description || null,
+      productId
+    );
+    return true;
+  } catch (error) {
+    console.error('Erreur updateProduct:', error);
+    return false;
+  }
+};
+
+export const deleteProduct = async (productId) => {
+  try {
+    await db.runAsync('DELETE FROM products WHERE id = ?', productId);
+    return true;
+  } catch (error) {
+    console.error('Erreur deleteProduct:', error);
+    return false;
+  }
+};
+
 
 // ========== VENTES ==========
 // Extrait de database.js - fonction saveSaleLocally corrigée
