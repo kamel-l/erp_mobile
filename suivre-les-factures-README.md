@@ -33,3 +33,4 @@ git push -u origin agent/suivre-factures/init
 Si tu veux que j'ajoute des exemples de tests automatisés, des migrations
 exécutables, ou un petit guide pour valider les factures en local, dis-le
 et je les ajoute dans la branche.
+- PR ready: ajout initial de l'agent (2026-05-03T08:19:19+01:00)
