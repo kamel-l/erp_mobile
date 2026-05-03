@@ -109,13 +109,56 @@ export const saveSalesOffline = async (sales) => {
 
 export const getLocalSales = async () => {
   try {
-    const sales = await db.getAllAsync('SELECT * FROM sales ORDER BY id DESC');
-    for (const sale of sales) {
-      const saleId = Number(sale.id);
-      const items = await db.getAllAsync('SELECT * FROM sale_items WHERE sale_id = ?', saleId);
-      sale.items = items;
+    const rows = await db.getAllAsync(`
+      SELECT 
+        s.*, 
+        i.id as item_id, 
+        i.product_id, 
+        i.barcode, 
+        i.name as item_name, 
+        i.quantity, 
+        i.unit_price, 
+        i.total as item_total,
+        i.synced as item_synced
+      FROM sales s
+      LEFT JOIN sale_items i ON s.id = i.sale_id
+      ORDER BY s.id DESC
+    `);
+
+    // Regrouper les items par vente
+    const salesMap = new Map();
+    for (const row of rows) {
+      if (!salesMap.has(row.id)) {
+        const sale = { ...row };
+        // Nettoyer les champs de l'item de l'objet vente
+        delete sale.item_id;
+        delete sale.product_id;
+        delete sale.barcode;
+        delete sale.item_name;
+        delete sale.quantity;
+        delete sale.unit_price;
+        delete sale.item_total;
+        delete sale.item_synced;
+        sale.items = [];
+        salesMap.set(row.id, sale);
+      }
+
+      if (row.item_id) {
+        salesMap.get(row.id).items.push({
+          id: row.item_id,
+          sale_id: row.id,
+          product_id: row.product_id,
+          barcode: row.barcode,
+          name: row.item_name,
+          quantity: row.quantity,
+          unit_price: row.unit_price,
+          total: row.item_total,
+          synced: row.item_synced
+        });
+      }
     }
-    return sales;
+
+    return Array.from(salesMap.values());
   } catch (error) {
     console.error('Erreur getLocalSales:', error);
     return [];

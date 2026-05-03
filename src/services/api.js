@@ -36,7 +36,9 @@ const api = axios.create({
 // Intercepteur pour ajouter le token
 api.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync('auth_token');
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
   return config;
 });
 
@@ -56,11 +58,17 @@ export const authAPI = {
     try {
       if (await isConnected()) {
         const res = await api.post('/auth/login', { username, password });
-        await SecureStore.setItemAsync('auth_token', res.data.token);
-        await SecureStore.setItemAsync('user_data', JSON.stringify(res.data.user));
-        // Lancer la synchronisation en arrière-plan (sans attendre)
-        syncManager.syncAllData().catch(console.warn);
-        return res.data;
+        const loginData = res.data.data;
+        
+        if (loginData && loginData.token) {
+          await SecureStore.setItemAsync('auth_token', String(loginData.token));
+          await SecureStore.setItemAsync('user_data', JSON.stringify(loginData.user));
+          // Lancer la synchronisation en arrière-plan
+          syncManager.syncAllData().catch(console.warn);
+          return loginData;
+        } else {
+          throw new Error(res.data.error || res.data.message || 'Token manquant');
+        }
       } else {
         // Mode hors ligne : accepter admin/admin123
         if (username === 'admin' && password === 'admin123') {
@@ -100,8 +108,9 @@ export const dashboardAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/dashboard/stats');
-        await saveDashboardStatsOffline(res.data);
-        return res.data;
+        const data = res.data.data || res.data; // Fallback si pas de wrapper
+        await saveDashboardStatsOffline(data);
+        return data;
       }
     } catch (error) {
       console.log('Offline: using cached stats');
@@ -114,8 +123,9 @@ export const dashboardAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/dashboard/sales-week');
-        await saveSalesWeekOffline(res.data);
-        return res.data;
+        const data = res.data.data || res.data;
+        await saveSalesWeekOffline(data);
+        return data;
       }
     } catch (error) {
       console.log('Offline: using cached sales week');
@@ -128,7 +138,7 @@ export const dashboardAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/dashboard/alerts');
-        return res.data;
+        return res.data.data || res.data;
       }
     } catch (error) {
       console.log('Offline: using mock alerts');
@@ -143,8 +153,7 @@ export const salesAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/sales', { params });
-        // Sauvegarder les ventes localement (à implémenter si besoin)
-        return res.data;
+        return res.data.data || res.data;
       }
     } catch (error) {
       console.log('Offline: using cached sales');
@@ -156,7 +165,7 @@ export const salesAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get(`/sales/${id}`);
-        return res.data;
+        return res.data.data || res.data;
       }
     } catch (error) {
       console.log('Offline: sale details not available');
@@ -169,7 +178,7 @@ export const salesAPI = {
     try {
       if (await isConnected()) {
         const res = await api.post('/sales', { sale: saleData, items: itemsData });
-        return res.data;
+        return res.data.data || res.data;
       } else {
         // Sauvegarde locale + file d'attente
         const saleId = await saveSaleLocally(saleData, itemsData);
@@ -189,7 +198,7 @@ export const salesAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/sales/stats');
-        return res.data;
+        return res.data.data || res.data;
       }
     } catch (error) {
       console.log('Offline: using mock stats');
@@ -201,8 +210,9 @@ export const salesAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/clients');
-        await saveClientsLocally(res.data);
-        return res.data;
+        const data = res.data.data || res.data;
+        await saveClientsLocally(data);
+        return data;
       }
     } catch (error) {
       console.log('Offline: using cached clients');
@@ -217,8 +227,9 @@ export const stockAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/products', { params });
-        await saveProductsLocally(res.data);
-        return res.data;
+        const data = res.data.data || res.data;
+        await saveProductsLocally(data);
+        return data;
       }
     } catch (error) {
       console.log('Offline: using cached products');
@@ -230,7 +241,7 @@ export const stockAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get(`/products/barcode/${barcode}`);
-        return res.data;
+        return res.data.data || res.data;
       }
     } catch (error) {
       console.log('Offline: searching in cache');
@@ -243,8 +254,9 @@ export const stockAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/products/low-stock');
-        await saveLowStockOffline(res.data);
-        return res.data;
+        const data = res.data.data || res.data;
+        await saveLowStockOffline(data);
+        return data;
       }
     } catch (error) {
       console.log('Offline: using cached low stock');
@@ -257,7 +269,7 @@ export const stockAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/stock/movements');
-        return res.data;
+        return res.data.data || res.data;
       }
     } catch (error) {
       console.log('Offline: movements not available');
@@ -269,7 +281,7 @@ export const stockAPI = {
     try {
       if (await isConnected()) {
         const res = await api.post('/stock/update', { product_id: productId, quantity: qty, type });
-        return res.data;
+        return res.data.data || res.data;
       } else {
         await addPendingAction({
           type: 'UPDATE_STOCK',
@@ -290,8 +302,9 @@ export const hrAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/employees');
-        await saveEmployeesOffline(res.data);
-        return res.data;
+        const data = res.data.data || res.data;
+        await saveEmployeesOffline(data);
+        return data;
       }
     } catch (error) {
       console.log('Offline: using cached employees');
@@ -401,9 +414,18 @@ export const syncManager = {
       for (const action of pendingActions) {
         try {
           switch (action.type) {
+            case 'sale':
             case 'CREATE_SALE': {
-              const { saleData, itemsData } = JSON.parse(action.data);
-              await api.post('/sales', { sale: saleData, items: itemsData });
+              const parsed = JSON.parse(action.data);
+              // Gérer les deux structures possibles
+              const saleData = parsed.saleData || parsed.data?.sale || parsed.sale;
+              const itemsData = parsed.itemsData || parsed.data?.items || parsed.items;
+              
+              if (saleData && itemsData) {
+                await api.post('/sales', { sale: saleData, items: itemsData });
+              } else {
+                console.warn('Incomplete sale data in pending action', parsed);
+              }
               break;
             }
             case 'UPDATE_STOCK': {
@@ -424,6 +446,11 @@ export const syncManager = {
           console.log(`✓ Synced action: ${action.type}`);
         } catch (error) {
           console.error(`✗ Failed to sync action ${action.type}:`, error);
+          // Si on a une erreur 401, on arrête la sync car le token est probablement invalide
+          if (error.response && error.response.status === 401) {
+            console.error('🛑 Stopping sync due to authentication error (401)');
+            break;
+          }
         }
       }
 

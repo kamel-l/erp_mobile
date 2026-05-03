@@ -33,8 +33,8 @@ const KEYS = {
 class SyncService {
   constructor() {
     this.config = {
-      wifiUrl:    null,      // ex: 'http://192.168.1.10:5000'
-      internetUrl: null,     // ex: 'https://mon-domaine.com' (ngrok ou VPS)
+      wifiUrl:    'http://192.168.1.65:5000',
+      internetUrl: null,
       token:      'DARELSSALEM2026',
       timeout:    10000,     // 10 secondes
     };
