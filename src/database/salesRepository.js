@@ -67,41 +67,43 @@ export const saveSaleLocally = async (sale, items, isReturn = false) => {
 
 export const saveSalesOffline = async (sales) => {
   try {
-    await db.execAsync('DELETE FROM sales');
-    await db.execAsync('DELETE FROM sale_items');
-    for (const sale of sales) {
-      await db.runAsync(
-        `INSERT INTO sales (id, invoice, client_id, client_name, total, status, date, synced, server_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        sale.id,
-        sale.invoice,
-        sale.client_id || null,
-        sale.client_name,
-        sale.total,
-        sale.status || 'completed',
-        sale.date,
-        1,
-        sale.id,
-        sale.created_at || new Date().toISOString()
-      );
+    await db.withTransactionAsync(async () => {
+      await db.runAsync('DELETE FROM sale_items');
+      await db.runAsync('DELETE FROM sales');
+      for (const sale of sales) {
+        await db.runAsync(
+          `INSERT INTO sales (id, invoice, client_id, client_name, total, status, date, synced, server_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          sale.id,
+          sale.invoice || sale.invoice_number || `INV-${sale.id}`,
+          sale.client_id || null,
+          sale.client_name || '',
+          sale.total,
+          sale.status || 'completed',
+          sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
+          1,
+          sale.id,
+          sale.created_at || sale.sale_date || new Date().toISOString()
+        );
 
-      if (sale.items && Array.isArray(sale.items)) {
-        for (const item of sale.items) {
-          await db.runAsync(
-            `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            sale.id,
-            item.product_id || null,
-            item.barcode,
-            item.name,
-            item.quantity,
-            item.unit_price,
-            item.total,
-            1
-          );
+        if (sale.items && Array.isArray(sale.items)) {
+          for (const item of sale.items) {
+            await db.runAsync(
+              `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              sale.id,
+              item.product_id || null,
+              item.barcode || null,
+              item.name || item.product_name || '',
+              item.quantity,
+              item.unit_price,
+              item.total,
+              1
+            );
+          }
         }
       }
-    }
+    });
   } catch (error) {
     console.error('Erreur saveSalesOffline:', error);
   }

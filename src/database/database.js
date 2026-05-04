@@ -168,15 +168,17 @@ export const initDatabase = async () => {
 // ========== PRODUITS ==========
 export const saveProductsLocally = async (products) => {
   try {
-    await db.execAsync('DELETE FROM products');
-    for (const p of products) {
-      await db.runAsync(
-        `INSERT INTO products (name, barcode, category, price, stock_quantity, min_stock, description, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        p.name, p.barcode || null, p.category || null, p.price,
-        p.stock_quantity || 0, p.min_stock || 0, p.description || null, p.created_at || new Date().toISOString()
-      );
-    }
+    await db.withTransactionAsync(async () => {
+      await db.runAsync('DELETE FROM products');
+      for (const p of products) {
+        await db.runAsync(
+          `INSERT INTO products (name, barcode, category, price, stock_quantity, min_stock, description, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          p.name, p.barcode || null, p.category || null, p.price || 0,
+          p.stock_quantity || 0, p.min_stock || 0, p.description || null, p.created_at || new Date().toISOString()
+        );
+      }
+    });
     return true;
   } catch (error) {
     console.error('Erreur saveProductsLocally:', error);
@@ -285,14 +287,16 @@ export const deleteProduct = async (productId) => {
 // ========== CLIENTS ==========
 export const saveClientsLocally = async (clients) => {
   try {
-    await db.execAsync('DELETE FROM clients');
-    for (const c of clients) {
-      await db.runAsync(
-        `INSERT INTO clients (name, email, phone, address, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        c.name, c.email || null, c.phone || null, c.address || null, c.created_at || new Date().toISOString()
-      );
-    }
+    await db.withTransactionAsync(async () => {
+      await db.runAsync('DELETE FROM clients');
+      for (const c of clients) {
+        await db.runAsync(
+          `INSERT INTO clients (name, email, phone, address, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          c.name, c.email || null, c.phone || null, c.address || null, c.created_at || new Date().toISOString()
+        );
+      }
+    });
     return true;
   } catch (error) {
     console.error('Erreur saveClientsLocally:', error);
@@ -592,8 +596,8 @@ export const clearCurrentUser = async () => {
  * - Ne passe pas par la file d'attente de synchronisation
  */
 export const importSaleFromDAT = async (saleData, itemsData) => {
-  await db.execAsync('BEGIN TRANSACTION');
-  try {
+  let saleId;
+  await db.withTransactionAsync(async () => {
     // 1. Générer un numéro de facture unique
     const invoiceNumber = saleData.invoice_number || `IMP-${Date.now()}`;
 
@@ -612,7 +616,7 @@ export const importSaleFromDAT = async (saleData, itemsData) => {
       1, // synced = 1 (ne pas mettre en file d'attente)
       new Date().toISOString()
     );
-    const saleId = result.lastInsertRowId;
+    saleId = result.lastInsertRowId;
 
     // 3. Insérer les items et mettre à jour le stock (incrémentation)
     for (const item of itemsData) {
@@ -642,13 +646,8 @@ export const importSaleFromDAT = async (saleData, itemsData) => {
         );
       }
     }
-
-    await db.execAsync('COMMIT');
-    return saleId;
-  } catch (error) {
-    await db.execAsync('ROLLBACK');
-    throw error;
-  }
+  });
+  return saleId;
 };
 
 // src/database/database.js

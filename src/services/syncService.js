@@ -12,6 +12,8 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { getLocalProducts, saveProductsLocally, getLocalClients, saveClientsLocally } from '../database/database';
+import { getLocalSales } from '../database/salesRepository';
 
 // ─────────────────────────────────────────────────────────────
 //  Clés de stockage local
@@ -103,7 +105,7 @@ class SyncService {
 
   async _ping(baseUrl) {
     try {
-      const res = await fetch(`${baseUrl}/api/ping`, {
+      const res = await fetch(`${baseUrl}/api/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       });
@@ -312,10 +314,7 @@ class SyncService {
   }
 
   async getLocalProduits() {
-    try {
-      const raw = await AsyncStorage.getItem(KEYS.PRODUITS);
-      return raw ? JSON.parse(raw) : [];
-    } catch (_) { return []; }
+    return await getLocalProducts();
   }
 
   async updateProduit(id, data) {
@@ -353,10 +352,7 @@ class SyncService {
   }
 
   async getLocalClients() {
-    try {
-      const raw = await AsyncStorage.getItem(KEYS.CLIENTS);
-      return raw ? JSON.parse(raw) : [];
-    } catch (_) { return []; }
+    return await getLocalClients();
   }
 
   async createClient(data) {
@@ -396,10 +392,7 @@ class SyncService {
   }
 
   async getLocalVentes() {
-    try {
-      const raw = await AsyncStorage.getItem(KEYS.VENTES);
-      return raw ? JSON.parse(raw) : [];
-    } catch (_) { return []; }
+    return await getLocalSales();
   }
 
   /**

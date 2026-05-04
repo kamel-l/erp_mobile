@@ -10,6 +10,7 @@ import {
   StyleSheet, Alert, ActivityIndicator, Switch,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { syncManager } from '../services/api';
 import SyncService from '../services/syncService';
 
 // ─────────────────────────────────────────────────────────────
@@ -92,28 +93,25 @@ export default function SyncScreen() {
 
   // ── Synchronisation complète ────────────────────────────────
   const handleSync = useCallback(async () => {
-    const wifiUrl = `http://${wifiIp}:${wifiPort}`;
-    await SyncService.configure({ wifiUrl, internetUrl: internetUrl || null, token });
-
     setSyncing(true);
     setProgress(0);
     setProgressMsg('Démarrage...');
 
-    const result = await SyncService.fullSync();
-    setSyncing(false);
-    await _refreshStats();
-
-    if (result.success) {
-      Alert.alert('✅ Synchronisation réussie',
-        `📦 Produits  : ${result.produits}\n` +
-        `👥 Clients   : ${result.clients}\n` +
-        `💰 Ventes    : ${result.ventes}\n` +
-        (result.pushed?.ventes ? `📤 Ventes envoyées : ${result.pushed.ventes}\n` : ''));
-    } else {
-      Alert.alert('⚠️ Synchronisation partielle',
-        result.errors.join('\n') || 'Erreur inconnue');
+    try {
+      setProgressMsg('Connexion au serveur...');
+      setProgress(20);
+      await syncManager.syncAllData();
+      setProgress(100);
+      setProgressMsg('Synchronisation terminée ✅');
+      
+      await _refreshStats();
+      Alert.alert('✅ Succès', 'La synchronisation est terminée.');
+    } catch (error) {
+      Alert.alert('❌ Erreur', 'Échec de la synchronisation : ' + error.message);
+    } finally {
+      setSyncing(false);
     }
-  }, [wifiIp, wifiPort, internetUrl, token, _refreshStats]);
+  }, [_refreshStats]);
 
   // ── Réinitialiser les données locales ──────────────────────
   const handleClear = useCallback(() => {

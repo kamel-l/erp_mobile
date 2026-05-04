@@ -75,7 +75,10 @@ def login():
         computed = f"{salt}:{hashlib.sha256(f'{salt}{password}'.encode()).hexdigest()}"
         if computed != stored_hash:
             return jsonify({'error': 'Identifiants incorrects'}), 401
-    except Exception:
+    except Exception as e:
+        print(f"DEBUG: Login exception: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': 'Erreur authentification'}), 500
     
     # Générer token
@@ -227,14 +230,31 @@ def handle_sales():
             db.close()
             
     # GET method
-    limit = request.args.get('limit', 20, type=int)
+    limit = request.args.get('limit', 50, type=int)
     rows = db.execute("""
         SELECT s.*, c.name as client_name
         FROM sales s LEFT JOIN clients c ON s.client_id = c.id
         ORDER BY sale_date DESC LIMIT ?
     """, (limit,)).fetchall()
+    
+    sales = []
+    for row in rows:
+        sale = dict(row)
+        # Ajouter les aliases pour compatibilité mobile
+        sale['date'] = sale.get('sale_date', '')
+        sale['invoice'] = sale.get('invoice_number', sale.get('invoice', f"INV-{sale['id']}"))
+        
+        # Charger les items de cette vente
+        items = db.execute("""
+            SELECT si.*, p.name as product_name, p.barcode
+            FROM sale_items si LEFT JOIN products p ON si.product_id = p.id
+            WHERE si.sale_id = ?
+        """, (sale['id'],)).fetchall()
+        sale['items'] = [dict(i) for i in items]
+        sales.append(sale)
+    
     db.close()
-    return jsonify({'data': [dict(r) for r in rows]})
+    return jsonify({'success': True, 'data': sales})
 
 
 @app.route('/api/sales/<int:sale_id>')
@@ -267,15 +287,33 @@ def get_sale(sale_id):
 @app.route('/api/products')
 @require_auth
 def get_products():
+    print("DEBUG: GET /api/products hit")
     db = get_db()
     search = request.args.get('search', '')
     rows = db.execute("""
-        SELECT p.*, c.name as category_name
+        SELECT p.id, p.name, p.barcode, c.name as category, 
+               p.selling_price as price, p.stock_quantity, 
+               p.min_stock, p.description, p.created_at
         FROM products p LEFT JOIN categories c ON p.category_id = c.id
         WHERE p.name LIKE ?
         ORDER BY p.name
     """, (f'%{search}%',)).fetchall()
     db.close()
+    print(f"DEBUG: returning {len(rows)} products")
+    return jsonify({'data': [dict(r) for r in rows]})
+
+
+@app.route('/api/clients')
+@require_auth
+def get_clients():
+    print("DEBUG: GET /api/clients hit")
+    db = get_db()
+    search = request.args.get('search', '')
+    rows = db.execute(
+        "SELECT * FROM clients WHERE name LIKE ? ORDER BY name", (f'%{search}%',)
+    ).fetchall()
+    db.close()
+    print(f"DEBUG: returning {len(rows)} clients")
     return jsonify({'data': [dict(r) for r in rows]})
 
 
@@ -283,7 +321,11 @@ def get_products():
 @require_auth
 def get_by_barcode(barcode):
     db = get_db()
-    row = db.execute("SELECT * FROM products WHERE barcode = ?", (barcode,)).fetchone()
+    row = db.execute("""
+        SELECT id, name, barcode, selling_price as price, stock_quantity, 
+               min_stock, description, created_at
+        FROM products WHERE barcode = ?
+    """, (barcode,)).fetchone()
     db.close()
     if not row:
         return jsonify({'error': 'Produit introuvable'}), 404
@@ -295,7 +337,9 @@ def get_by_barcode(barcode):
 def low_stock():
     db = get_db()
     rows = db.execute("""
-        SELECT * FROM products WHERE stock_quantity <= min_stock ORDER BY stock_quantity
+        SELECT id, name, barcode, selling_price as price, stock_quantity, 
+               min_stock, description, created_at
+        FROM products WHERE stock_quantity <= min_stock ORDER BY stock_quantity
     """).fetchall()
     db.close()
     return jsonify({'data': [dict(r) for r in rows]})
@@ -358,17 +402,7 @@ def get_employees():
     return jsonify({'data': [dict(r) for r in rows]})
 
 
-# ─── CLIENTS ──────────────────────────────────────────────────────────────────
-@app.route('/api/clients')
-@require_auth
-def get_clients():
-    db = get_db()
-    search = request.args.get('search', '')
-    rows = db.execute(
-        "SELECT * FROM clients WHERE name LIKE ? ORDER BY name", (f'%{search}%',)
-    ).fetchall()
-    db.close()
-    return jsonify({'data': [dict(r) for r in rows]})
+# ─── ATTENDANCE ───────────────────────────────────────────────────────────────
 
 
 @app.route('/api/attendance', methods=['POST'])

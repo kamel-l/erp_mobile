@@ -22,10 +22,10 @@ import {
   setLastSyncTime,
   getLastSyncTime,
 } from '../database/database';
-import { getLocalSales, saveSaleLocally } from '../database/salesRepository';
+import { getLocalSales, saveSaleLocally, saveSalesOffline } from '../database/salesRepository';
 
 // ========== CONFIGURATION ==========
-const BASE_URL = 'http://192.168.1.65:5000/api'; // Correction : ajout de /api pour correspondre au backend Flask
+const BASE_URL = 'http://192.168.1.65:5000/api';
 
 const api = axios.create({
   baseURL: BASE_URL,
@@ -45,10 +45,9 @@ api.interceptors.request.use(async (config) => {
 // ========== VÉRIFICATION DE CONNEXION ==========
 export const isConnected = async () => {
   try {
-    const state = await Network.getNetworkStateAsync();
-    return state.isConnected && state.isInternetReachable;
+    return true; // Forçage pour le debug
   } catch {
-    return false;
+    return true;
   }
 };
 
@@ -59,7 +58,7 @@ export const authAPI = {
       if (await isConnected()) {
         const res = await api.post('/auth/login', { username, password });
         const loginData = res.data.data;
-        
+
         if (loginData && loginData.token) {
           await SecureStore.setItemAsync('auth_token', String(loginData.token));
           await SecureStore.setItemAsync('user_data', JSON.stringify(loginData.user));
@@ -153,7 +152,12 @@ export const salesAPI = {
     try {
       if (await isConnected()) {
         const res = await api.get('/sales', { params });
-        return res.data.data || res.data;
+        const data = res.data.data || res.data;
+        // Sauvegarder les ventes localement pour le mode hors ligne
+        if (data && Array.isArray(data) && data.length > 0) {
+          await saveSalesOffline(data);
+        }
+        return data;
       }
     } catch (error) {
       console.log('Offline: using cached sales');
@@ -416,11 +420,11 @@ export const syncManager = {
           switch (action.type) {
             case 'sale':
             case 'CREATE_SALE': {
-              const parsed = JSON.parse(action.data);
+              const parsed = typeof action.data === 'string' ? JSON.parse(action.data) : action.data;
               // Gérer les deux structures possibles
               const saleData = parsed.saleData || parsed.data?.sale || parsed.sale;
               const itemsData = parsed.itemsData || parsed.data?.items || parsed.items;
-              
+
               if (saleData && itemsData) {
                 await api.post('/sales', { sale: saleData, items: itemsData });
               } else {
@@ -429,12 +433,14 @@ export const syncManager = {
               break;
             }
             case 'UPDATE_STOCK': {
-              const { productId, qty, type } = JSON.parse(action.data);
+              const data = typeof action.data === 'string' ? JSON.parse(action.data) : action.data;
+              const { productId, qty, type } = data;
               await api.post('/stock/update', { product_id: productId, quantity: qty, type });
               break;
             }
             case 'MARK_ATTENDANCE': {
-              const { employeeId, status } = JSON.parse(action.data);
+              const data = typeof action.data === 'string' ? JSON.parse(action.data) : action.data;
+              const { employeeId, status } = data;
               await api.post('/attendance', { employee_id: employeeId, status });
               break;
             }
@@ -461,6 +467,7 @@ export const syncManager = {
         stockAPI.getProducts(),
         stockAPI.getLowStock(),
         salesAPI.getClients(),
+        salesAPI.getAll(),
         hrAPI.getEmployees(),
       ]);
 
@@ -473,7 +480,7 @@ export const syncManager = {
     }
   },
 
-  sync: async () => {
+  async sync() {
     await this.syncAllData();
   },
 };
