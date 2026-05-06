@@ -21,11 +21,7 @@ CORS(app)  # Autorise les requêtes de l'app mobile
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
 DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'erp_database.db')
 SECRET_KEY = 'votre_cle_secrete_ici'  # Changez ceci en production
-TOKENS = {
-    'offline-token': {'id': 1, 'username': 'admin', 'role': 'admin'},
-    'dev-token': {'id': 1, 'username': 'admin', 'role': 'admin'}
-}  # Stockage simple en mémoire (utilisez Redis en prod)
-
+TOKENS = {}  # Stockage simple en mémoire (utilisez Redis en prod)
 
 
 def get_db():
@@ -75,10 +71,7 @@ def login():
         computed = f"{salt}:{hashlib.sha256(f'{salt}{password}'.encode()).hexdigest()}"
         if computed != stored_hash:
             return jsonify({'error': 'Identifiants incorrects'}), 401
-    except Exception as e:
-        print(f"DEBUG: Login exception: {str(e)}")
-        import traceback
-        traceback.print_exc()
+    except Exception:
         return jsonify({'error': 'Erreur authentification'}), 500
     
     # Générer token
@@ -86,10 +79,8 @@ def login():
     TOKENS[token] = {'id': user['id'], 'username': user['username'], 'role': user['role']}
     
     return jsonify({
-        'data': {
-            'token': token,
-            'user': {'id': user['id'], 'username': user['username'], 'role': user['role']}
-        }
+        'token': token,
+        'user': {'id': user['id'], 'username': user['username'], 'role': user['role']}
     })
 
 
@@ -130,16 +121,14 @@ def dashboard_stats():
     
     db.close()
     return jsonify({
-        'data': {
-            'salesToday': float(sales_today),
-            'growth': 12.4,  # TODO: calculer dynamiquement
-            'activeOrders': 23,
-            'lowStockCount': low_stock,
-            'totalProducts': total_products,
-            'monthlyRevenue': float(sales_year),
-            'netProfit': float(sales_year) - float(purchases_year),
-            'grossMargin': round((float(sales_year) - float(purchases_year)) / max(float(sales_year), 1) * 100, 1),
-        }
+        'salesToday': float(sales_today),
+        'growth': 12.4,  # TODO: calculer dynamiquement
+        'activeOrders': 23,
+        'lowStockCount': low_stock,
+        'totalProducts': total_products,
+        'monthlyRevenue': float(sales_year),
+        'netProfit': float(sales_year) - float(purchases_year),
+        'grossMargin': round((float(sales_year) - float(purchases_year)) / max(float(sales_year), 1) * 100, 1),
     })
 
 
@@ -162,99 +151,22 @@ def sales_week():
         from datetime import timedelta, date
         d = (date.today() - timedelta(days=6-i)).strftime('%Y-%m-%d')
         result.append({'day': days_labels[i], 'total': days_map.get(d, 0)})
-    return jsonify({'data': result})
-
-
-@app.route('/api/dashboard/alerts')
-@require_auth
-def dashboard_alerts():
-    # Mock alerts for now
-    return jsonify({'data': []})
+    return jsonify(result)
 
 
 # ─── VENTES ───────────────────────────────────────────────────────────────────
-@app.route('/api/sales', methods=['GET', 'POST'])
+@app.route('/api/sales')
 @require_auth
-def handle_sales():
+def get_sales():
     db = get_db()
-    if request.method == 'POST':
-        data = request.json
-        sale_data = data.get('sale', {})
-        items_data = data.get('items', [])
-        
-        try:
-            cur = db.cursor()
-            print(f"DEBUG: Processing sale sync for invoice {sale_data.get('invoice')}")
-            # Insérer la vente
-            cur.execute("""
-                INSERT INTO sales (invoice, client_id, total, status, sale_date)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                sale_data.get('invoice'),
-                sale_data.get('client_id'),
-                sale_data.get('total'),
-                sale_data.get('status', 'completed'),
-                sale_data.get('sale_date', datetime.now().isoformat())
-            ))
-            sale_id = cur.lastrowid
-            
-            # Insérer les articles
-            print(f"DEBUG: Inserting {len(items_data)} items")
-            for item in items_data:
-                cur.execute("""
-                    INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (
-                    sale_id,
-                    item.get('product_id'),
-                    item.get('quantity'),
-                    item.get('unit_price'),
-                    item.get('total')
-                ))
-                
-                # Mettre à jour le stock
-                if item.get('product_id'):
-                    cur.execute(
-                        "UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?",
-                        (item.get('quantity'), item.get('product_id'))
-                    )
-            
-            db.commit()
-            print(f"DEBUG: Sale {sale_id} synced successfully")
-            return jsonify({'data': {'id': sale_id, 'status': 'success'}})
-        except Exception as e:
-            print(f"ERROR in handle_sales: {str(e)}")
-            db.rollback()
-            return jsonify({'error': str(e)}), 500
-        finally:
-            db.close()
-            
-    # GET method
-    limit = request.args.get('limit', 50, type=int)
+    limit = request.args.get('limit', 20, type=int)
     rows = db.execute("""
         SELECT s.*, c.name as client_name
         FROM sales s LEFT JOIN clients c ON s.client_id = c.id
         ORDER BY sale_date DESC LIMIT ?
     """, (limit,)).fetchall()
-    
-    sales = []
-    for row in rows:
-        sale = dict(row)
-        # Ajouter les aliases pour compatibilité mobile
-        sale['date'] = sale.get('sale_date', '')
-        sale['invoice'] = sale.get('invoice_number', sale.get('invoice', f"INV-{sale['id']}"))
-        
-        # Charger les items de cette vente
-        items = db.execute("""
-            SELECT si.*, p.name as product_name, p.barcode
-            FROM sale_items si LEFT JOIN products p ON si.product_id = p.id
-            WHERE si.sale_id = ?
-        """, (sale['id'],)).fetchall()
-        sale['items'] = [dict(i) for i in items]
-        sales.append(sale)
-    
     db.close()
-    return jsonify({'success': True, 'data': sales})
+    return jsonify([dict(r) for r in rows])
 
 
 @app.route('/api/sales/<int:sale_id>')
@@ -280,56 +192,34 @@ def get_sale(sale_id):
     db.close()
     result = dict(sale)
     result['items'] = [dict(i) for i in items]
-    return jsonify({'data': result})
+    return jsonify(result)
 
 
 # ─── PRODUCTS / STOCK ─────────────────────────────────────────────────────────
 @app.route('/api/products')
 @require_auth
 def get_products():
-    print("DEBUG: GET /api/products hit")
     db = get_db()
     search = request.args.get('search', '')
     rows = db.execute("""
-        SELECT p.id, p.name, p.barcode, c.name as category, 
-               p.selling_price as price, p.stock_quantity, 
-               p.min_stock, p.description, p.created_at
+        SELECT p.*, c.name as category_name
         FROM products p LEFT JOIN categories c ON p.category_id = c.id
         WHERE p.name LIKE ?
         ORDER BY p.name
     """, (f'%{search}%',)).fetchall()
     db.close()
-    print(f"DEBUG: returning {len(rows)} products")
-    return jsonify({'data': [dict(r) for r in rows]})
-
-
-@app.route('/api/clients')
-@require_auth
-def get_clients():
-    print("DEBUG: GET /api/clients hit")
-    db = get_db()
-    search = request.args.get('search', '')
-    rows = db.execute(
-        "SELECT * FROM clients WHERE name LIKE ? ORDER BY name", (f'%{search}%',)
-    ).fetchall()
-    db.close()
-    print(f"DEBUG: returning {len(rows)} clients")
-    return jsonify({'data': [dict(r) for r in rows]})
+    return jsonify([dict(r) for r in rows])
 
 
 @app.route('/api/products/barcode/<barcode>')
 @require_auth
 def get_by_barcode(barcode):
     db = get_db()
-    row = db.execute("""
-        SELECT id, name, barcode, selling_price as price, stock_quantity, 
-               min_stock, description, created_at
-        FROM products WHERE barcode = ?
-    """, (barcode,)).fetchone()
+    row = db.execute("SELECT * FROM products WHERE barcode = ?", (barcode,)).fetchone()
     db.close()
     if not row:
         return jsonify({'error': 'Produit introuvable'}), 404
-    return jsonify({'data': dict(row)})
+    return jsonify(dict(row))
 
 
 @app.route('/api/products/low-stock')
@@ -337,12 +227,10 @@ def get_by_barcode(barcode):
 def low_stock():
     db = get_db()
     rows = db.execute("""
-        SELECT id, name, barcode, selling_price as price, stock_quantity, 
-               min_stock, description, created_at
-        FROM products WHERE stock_quantity <= min_stock ORDER BY stock_quantity
+        SELECT * FROM products WHERE stock_quantity <= min_stock ORDER BY stock_quantity
     """).fetchall()
     db.close()
-    return jsonify({'data': [dict(r) for r in rows]})
+    return jsonify([dict(r) for r in rows])
 
 
 @app.route('/api/stock/movements')
@@ -355,39 +243,7 @@ def stock_movements():
         ORDER BY created_at DESC LIMIT 50
     """).fetchall()
     db.close()
-    return jsonify({'data': [dict(r) for r in rows]})
-
-
-@app.route('/api/stock/update', methods=['POST'])
-@require_auth
-def update_stock():
-    data = request.json
-    product_id = data.get('product_id')
-    quantity = data.get('quantity')
-    type = data.get('type', 'adjustment')
-    
-    db = get_db()
-    try:
-        cur = db.cursor()
-        # Ajuster le stock
-        if type == 'in':
-            cur.execute("UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?", (quantity, product_id))
-        else:
-            cur.execute("UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?", (quantity, product_id))
-            
-        # Enregistrer le mouvement
-        cur.execute("""
-            INSERT INTO stock_movements (product_id, quantity, type, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (product_id, quantity, type, datetime.now().isoformat()))
-        
-        db.commit()
-        return jsonify({'data': {'status': 'success'}})
-    except Exception as e:
-        db.rollback()
-        return jsonify({'error': str(e)}), 500
-    finally:
-        db.close()
+    return jsonify([dict(r) for r in rows])
 
 
 # ─── EMPLOYEES ────────────────────────────────────────────────────────────────
@@ -396,24 +252,23 @@ def update_stock():
 def get_employees():
     db = get_db()
     rows = db.execute(
-        "SELECT id, username AS name, role, is_active, last_login FROM users ORDER BY username"
+        "SELECT id, username, role, is_active, last_login FROM users ORDER BY username"
     ).fetchall()
     db.close()
-    return jsonify({'data': [dict(r) for r in rows]})
+    return jsonify([dict(r) for r in rows])
 
 
-# ─── ATTENDANCE ───────────────────────────────────────────────────────────────
-
-
-@app.route('/api/attendance', methods=['POST'])
+# ─── CLIENTS ──────────────────────────────────────────────────────────────────
+@app.route('/api/clients')
 @require_auth
-def mark_attendance():
-    data = request.json
-    employee_id = data.get('employee_id')
-    status = data.get('status')
-    
-    # Mock for now
-    return jsonify({'data': {'status': 'success'}})
+def get_clients():
+    db = get_db()
+    search = request.args.get('search', '')
+    rows = db.execute(
+        "SELECT * FROM clients WHERE name LIKE ? ORDER BY name", (f'%{search}%',)
+    ).fetchall()
+    db.close()
+    return jsonify([dict(r) for r in rows])
 
 
 # ─── REPORTS ──────────────────────────────────────────────────────────────────
@@ -440,12 +295,12 @@ def monthly_report():
     """, (period,)).fetchall()
     
     db.close()
-    return jsonify({'data': {
+    return jsonify({
         'period': period,
         'totalRevenue': float(sales['t']),
         'invoiceCount': sales['c'],
         'topProducts': [dict(r) for r in top_products],
-    }})
+    })
 
 
 @app.route('/api/reports/top-products')
@@ -458,14 +313,13 @@ def top_products():
         GROUP BY si.product_id ORDER BY total_revenue DESC LIMIT 10
     """).fetchall()
     db.close()
-    return jsonify({'data': [dict(r) for r in rows]})
+    return jsonify([dict(r) for r in rows])
 
 
 # ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok', 'db': DB_PATH, 'time': datetime.now().isoformat()})
-
 
 
 if __name__ == '__main__':

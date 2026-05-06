@@ -10,16 +10,24 @@ import { initDatabase } from './src/database/database';
 
 export default function App() {
   useEffect(() => {
-    initDatabase();
-  }, []);
-  useEffect(() => {
+    async function startApp() {
+      try {
+        // 1. Initialiser la base d'abord (séquentiel)
+        await initDatabase();
+        
+        // 2. Lancer la sync initiale après
+        await syncManager.syncAllData();
+      } catch (err) {
+        console.error("Erreur au démarrage de l'app:", err);
+      }
+    }
+
+    startApp();
+
     // Synchronisation périodique toutes les 5 minutes
     const interval = setInterval(() => {
       syncManager.syncAllData();
     }, 5 * 60 * 1000);
-
-    // Sync au démarrage
-    syncManager.syncAllData();
 
     return () => clearInterval(interval);
   }, []);

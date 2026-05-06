@@ -399,6 +399,8 @@ export const reportsAPI = {
   },
 };
 
+// Removed expo-notifications as it is not supported in Expo Go SDK 53
+
 // ========== GESTIONNAIRE DE SYNCHRONISATION ==========
 export const syncManager = {
   isSyncing: false,
@@ -460,16 +462,14 @@ export const syncManager = {
         }
       }
 
-      // Rafraîchir les données locales
-      await Promise.all([
-        dashboardAPI.getStats(),
-        dashboardAPI.getSalesWeek(),
-        stockAPI.getProducts(),
-        stockAPI.getLowStock(),
-        salesAPI.getClients(),
-        salesAPI.getAll(),
-        hrAPI.getEmployees(),
-      ]);
+      // Rafraîchir les données locales (séquentiellement pour éviter les conflits SQLite)
+      await dashboardAPI.getStats();
+      await dashboardAPI.getSalesWeek();
+      await stockAPI.getProducts();
+      await stockAPI.getLowStock();
+      await salesAPI.getClients();
+      await salesAPI.getAll();
+      await hrAPI.getEmployees();
 
       await setLastSyncTime();
       console.log('✅ Sync completed');

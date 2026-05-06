@@ -413,7 +413,7 @@ export default function DashboardScreen() {
                 const h = Math.max((d.total / maxVal) * BAR_MAX_HEIGHT, 4);
                 const isToday = i === 6;
                 return (
-                  <View key={d.day} style={styles.barCol}>
+                  <View key={d.date} style={styles.barCol}>
                     <View style={[styles.bar, { height: h, backgroundColor: isToday ? COLORS.primaryLight : COLORS.primary, opacity: isToday ? 0.5 : 1 }]} />
                     <Text style={styles.barLabel}>{d.day}</Text>
                   </View>
