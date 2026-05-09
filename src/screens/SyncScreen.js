@@ -10,31 +10,32 @@ import {
   StyleSheet, Alert, ActivityIndicator, Switch,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import SyncService from './syncService';
+import { syncManager } from '../services/api';
+import SyncService from '../services/syncService';
 
 // ─────────────────────────────────────────────────────────────
 //  Constantes
 // ─────────────────────────────────────────────────────────────
-const DEFAULT_TOKEN   = 'DARELSSALEM2026';
-const DEFAULT_PORT    = '5000';
+const DEFAULT_TOKEN = 'DARELSSALEM2026';
+const DEFAULT_PORT = '5000';
 
 // ─────────────────────────────────────────────────────────────
 //  Composant
 // ─────────────────────────────────────────────────────────────
 export default function SyncScreen() {
-  const [wifiIp,      setWifiIp]      = useState('192.168.1.');
-  const [wifiPort,    setWifiPort]    = useState(DEFAULT_PORT);
+  const [wifiIp, setWifiIp] = useState('192.168.1.65');
+  const [wifiPort, setWifiPort] = useState(DEFAULT_PORT);
   const [internetUrl, setInternetUrl] = useState('');
-  const [token,       setToken]       = useState(DEFAULT_TOKEN);
-  const [showToken,   setShowToken]   = useState(false);
-  const [syncing,     setSyncing]     = useState(false);
-  const [progress,    setProgress]    = useState(0);
+  const [token, setToken] = useState(DEFAULT_TOKEN);
+  const [showToken, setShowToken] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [progressMsg, setProgressMsg] = useState('');
-  const [stats,       setStats]       = useState(null);
-  const [lastSync,    setLastSync]    = useState(null);
-  const [connInfo,    setConnInfo]    = useState(null);
-  const [pendingCount, setPending]    = useState(0);
-  const [autoSync,    setAutoSync]    = useState(false);
+  const [stats, setStats] = useState(null);
+  const [lastSync, setLastSync] = useState(null);
+  const [connInfo, setConnInfo] = useState(null);
+  const [pendingCount, setPending] = useState(0);
+  const [autoSync, setAutoSync] = useState(false);
 
   // ── Charger la config sauvegardée ──────────────────────────
   useEffect(() => {
@@ -42,9 +43,13 @@ export default function SyncScreen() {
       await SyncService.loadConfig();
       const info = SyncService.getConnectionInfo();
       if (info.wifiUrl) {
-        const url = new URL(info.wifiUrl);
-        setWifiIp(url.hostname);
-        setWifiPort(url.port || DEFAULT_PORT);
+        try {
+          const url = new URL(info.wifiUrl);
+          setWifiIp(url.hostname);
+          setWifiPort(url.port || DEFAULT_PORT);
+        } catch (e) {
+          console.warn('URL invalide dans la config:', info.wifiUrl);
+        }
       }
       if (info.internetUrl) setInternetUrl(info.internetUrl);
       await _refreshStats();
@@ -53,12 +58,12 @@ export default function SyncScreen() {
     SyncService.onProgress(({ step, percent }) => {
       setProgress(percent);
       const msgs = {
-        pull:           'Connexion à l\'ERP...',
-        pull_produits:  'Téléchargement des produits...',
-        pull_clients:   'Téléchargement des clients...',
-        pull_ventes:    'Téléchargement des ventes...',
-        push:           'Envoi des données locales...',
-        done:           'Synchronisation terminée ✅',
+        pull: 'Connexion à l\'ERP...',
+        pull_produits: 'Téléchargement des produits...',
+        pull_clients: 'Téléchargement des clients...',
+        pull_ventes: 'Téléchargement des ventes...',
+        push: 'Envoi des données locales...',
+        done: 'Synchronisation terminée ✅',
       };
       setProgressMsg(msgs[step] || step);
     });
@@ -88,28 +93,25 @@ export default function SyncScreen() {
 
   // ── Synchronisation complète ────────────────────────────────
   const handleSync = useCallback(async () => {
-    const wifiUrl = `http://${wifiIp}:${wifiPort}`;
-    await SyncService.configure({ wifiUrl, internetUrl: internetUrl || null, token });
-
     setSyncing(true);
     setProgress(0);
     setProgressMsg('Démarrage...');
 
-    const result = await SyncService.fullSync();
-    setSyncing(false);
-    await _refreshStats();
-
-    if (result.success) {
-      Alert.alert('✅ Synchronisation réussie',
-        `📦 Produits  : ${result.produits}\n` +
-        `👥 Clients   : ${result.clients}\n` +
-        `💰 Ventes    : ${result.ventes}\n` +
-        (result.pushed?.ventes ? `📤 Ventes envoyées : ${result.pushed.ventes}\n` : ''));
-    } else {
-      Alert.alert('⚠️ Synchronisation partielle',
-        result.errors.join('\n') || 'Erreur inconnue');
+    try {
+      setProgressMsg('Connexion au serveur...');
+      setProgress(20);
+      await syncManager.syncAllData();
+      setProgress(100);
+      setProgressMsg('Synchronisation terminée ✅');
+      
+      await _refreshStats();
+      Alert.alert('✅ Succès', 'La synchronisation est terminée.');
+    } catch (error) {
+      Alert.alert('❌ Erreur', 'Échec de la synchronisation : ' + error.message);
+    } finally {
+      setSyncing(false);
     }
-  }, [wifiIp, wifiPort, internetUrl, token, _refreshStats]);
+  }, [_refreshStats]);
 
   // ── Réinitialiser les données locales ──────────────────────
   const handleClear = useCallback(() => {
@@ -286,9 +288,9 @@ function StatusBadge({ connInfo }) {
 
 function StatsRow({ stats, pending }) {
   const items = [
-    { icon: '📦', label: 'Produits',  value: stats.total_produits },
-    { icon: '👥', label: 'Clients',   value: stats.total_clients },
-    { icon: '💰', label: 'Ventes',    value: stats.total_ventes },
+    { icon: '📦', label: 'Produits', value: stats.total_produits },
+    { icon: '👥', label: 'Clients', value: stats.total_clients },
+    { icon: '💰', label: 'Ventes', value: stats.total_ventes },
     { icon: '⏳', label: 'En attente', value: pending, warn: pending > 0 },
   ];
   return (
@@ -319,36 +321,40 @@ function Section({ title, children }) {
 //  Styles
 // ─────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: '#0A0E1A' },
-  content:     { padding: 16, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: '#0A0E1A' },
+  content: { padding: 16, paddingBottom: 40 },
 
-  header:      { marginBottom: 20, alignItems: 'center' },
+  header: { marginBottom: 20, alignItems: 'center' },
   headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#F8FAFC' },
-  headerSub:   { fontSize: 13, color: '#94A3B8', marginTop: 4 },
+  headerSub: { fontSize: 13, color: '#94A3B8', marginTop: 4 },
 
   // Statut
-  badge:        { borderRadius: 10, padding: 12, marginBottom: 16 },
-  badgeOnline:  { backgroundColor: 'rgba(34,197,94,0.15)', borderWidth: 1, borderColor: '#22C55E55' },
+  badge: { borderRadius: 10, padding: 12, marginBottom: 16 },
+  badgeOnline: { backgroundColor: 'rgba(34,197,94,0.15)', borderWidth: 1, borderColor: '#22C55E55' },
   badgeOffline: { backgroundColor: 'rgba(239,68,68,0.12)', borderWidth: 1, borderColor: '#EF444455' },
-  badgeText:    { color: '#F8FAFC', fontSize: 12, textAlign: 'center' },
+  badgeText: { color: '#F8FAFC', fontSize: 12, textAlign: 'center' },
 
   // Stats
-  statsRow:    { flexDirection: 'row', gap: 8, marginBottom: 20 },
-  statCard:    { flex: 1, backgroundColor: '#141B2D', borderRadius: 10,
-                 padding: 10, alignItems: 'center',
-                 borderWidth: 1, borderColor: '#2D3A54' },
-  statIcon:    { fontSize: 18, marginBottom: 4 },
-  statValue:   { fontSize: 18, fontWeight: 'bold', color: '#3B82F6' },
-  statWarn:    { color: '#FBBF24' },
-  statLabel:   { fontSize: 10, color: '#94A3B8', marginTop: 2 },
+  statsRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  statCard: {
+    flex: 1, backgroundColor: '#141B2D', borderRadius: 10,
+    padding: 10, alignItems: 'center',
+    borderWidth: 1, borderColor: '#2D3A54'
+  },
+  statIcon: { fontSize: 18, marginBottom: 4 },
+  statValue: { fontSize: 18, fontWeight: 'bold', color: '#3B82F6' },
+  statWarn: { color: '#FBBF24' },
+  statLabel: { fontSize: 10, color: '#94A3B8', marginTop: 2 },
 
   // Section
-  section:      { backgroundColor: '#141B2D', borderRadius: 12,
-                  borderWidth: 1, borderColor: '#2D3A54',
-                  padding: 16, marginBottom: 14 },
+  section: {
+    backgroundColor: '#141B2D', borderRadius: 12,
+    borderWidth: 1, borderColor: '#2D3A54',
+    padding: 16, marginBottom: 14
+  },
   sectionTitle: { fontSize: 14, fontWeight: 'bold', color: '#F8FAFC', marginBottom: 12 },
-  label:        { fontSize: 12, color: '#94A3B8', marginBottom: 6 },
-  hint:         { fontSize: 11, color: '#64748B', marginTop: 6, fontStyle: 'italic' },
+  label: { fontSize: 12, color: '#94A3B8', marginBottom: 6 },
+  hint: { fontSize: 11, color: '#64748B', marginTop: 6, fontStyle: 'italic' },
 
   // Inputs
   input: {
@@ -357,10 +363,12 @@ const s = StyleSheet.create({
     borderRadius: 8, padding: 12,
     color: '#F8FAFC', fontSize: 14, marginBottom: 4,
   },
-  row:    { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  colon:  { color: '#94A3B8', fontSize: 18, marginBottom: 4 },
-  eyeBtn: { padding: 12, backgroundColor: '#1E2A42',
-            borderRadius: 8, borderWidth: 1, borderColor: '#2D3A54' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  colon: { color: '#94A3B8', fontSize: 18, marginBottom: 4 },
+  eyeBtn: {
+    padding: 12, backgroundColor: '#1E2A42',
+    borderRadius: 8, borderWidth: 1, borderColor: '#2D3A54'
+  },
 
   // Boutons
   btnPrimary: {
@@ -378,24 +386,32 @@ const s = StyleSheet.create({
     padding: 12, alignItems: 'center', marginTop: 16,
   },
   btnDangerText: { color: '#EF4444', fontSize: 14 },
-  btnDisabled:   { opacity: 0.5 },
+  btnDisabled: { opacity: 0.5 },
 
   // Progression
-  progressBox:  { backgroundColor: '#141B2D', borderRadius: 10,
-                  padding: 14, marginBottom: 12,
-                  borderWidth: 1, borderColor: '#2D3A54' },
-  progressMsg:  { color: '#94A3B8', fontSize: 13, marginBottom: 8 },
-  progressBg:   { backgroundColor: '#0F1729', borderRadius: 6,
-                  height: 8, overflow: 'hidden' },
+  progressBox: {
+    backgroundColor: '#141B2D', borderRadius: 10,
+    padding: 14, marginBottom: 12,
+    borderWidth: 1, borderColor: '#2D3A54'
+  },
+  progressMsg: { color: '#94A3B8', fontSize: 13, marginBottom: 8 },
+  progressBg: {
+    backgroundColor: '#0F1729', borderRadius: 6,
+    height: 8, overflow: 'hidden'
+  },
   progressFill: { backgroundColor: '#3B82F6', height: 8, borderRadius: 6 },
-  progressPct:  { color: '#3B82F6', fontSize: 12, textAlign: 'right',
-                  marginTop: 4, fontWeight: 'bold' },
+  progressPct: {
+    color: '#3B82F6', fontSize: 12, textAlign: 'right',
+    marginTop: 4, fontWeight: 'bold'
+  },
 
   // Divers
-  lastSync:   { color: '#64748B', fontSize: 11, textAlign: 'center', marginTop: 8 },
-  pendingBox: { backgroundColor: 'rgba(251,191,36,0.10)',
-                borderWidth: 1, borderColor: '#FBBF2455',
-                borderRadius: 10, padding: 12, marginTop: 8 },
+  lastSync: { color: '#64748B', fontSize: 11, textAlign: 'center', marginTop: 8 },
+  pendingBox: {
+    backgroundColor: 'rgba(251,191,36,0.10)',
+    borderWidth: 1, borderColor: '#FBBF2455',
+    borderRadius: 10, padding: 12, marginTop: 8
+  },
   pendingText: { color: '#FBBF24', fontSize: 13, fontWeight: '600' },
   pendingHint: { color: '#94A3B8', fontSize: 11, marginTop: 4 },
 });

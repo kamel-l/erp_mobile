@@ -20,9 +20,7 @@ export function AuthProvider({ children }) {
   const login = async (username, password) => {
     try {
       const data = await authAPI.login(username, password);
-      if (data?.token) {
-        await SecureStore.setItemAsync('auth_token', data.token);
-      }
+      // Le token est déjà stocké par authAPI.login
       setUser(data.user);
       await setCurrentUser(data.user);
       return { success: true };

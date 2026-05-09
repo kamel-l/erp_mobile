@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { COLORS, formatDA } from '../services/theme';
 import { Card, Divider, RowBetween, Avatar } from '../components/UIComponents';
+import { syncManager } from '../services/api';
 
 export default function ProfileScreen({ navigation, onLogout }) {
   const [serverIP, setServerIP] = useState('192.168.1.100');
@@ -55,7 +56,15 @@ export default function ProfileScreen({ navigation, onLogout }) {
       label: 'Synchroniser',
       color: '#E3F2FD',
       textColor: '#0D47A1',
-      onPress: () => Alert.alert('Sync', 'Données synchronisées.'),
+      onPress: async () => {
+        try {
+          Alert.alert('Sync', 'Synchronisation en cours...');
+          await syncManager.syncAllData();
+          Alert.alert('Succès', 'Données synchronisées avec succès.');
+        } catch (error) {
+          Alert.alert('Erreur', 'Échec de la synchronisation : ' + error.message);
+        }
+      },
     },
     {
       icon: '🔔',

@@ -23,6 +23,7 @@ import InvoicesScreen from '../screens/InvoicesScreen';
 import SaleDetailScreen from '../screens/SaleDetailScreen';
 import { LoadingView } from '../components/UIComponents';
 import BarcodeImageImportScreen from '../screens/BarcodeImageImportScreen';
+import SyncScreen from '../screens/SyncScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -150,8 +151,8 @@ function MainTabs({ navigation }) {
       <Tab.Screen
         name="Invoices"
         component={InvoicesScreen}
-        options={{ 
-          title: 'Toutes les factures', 
+        options={{
+          title: 'Toutes les factures',
           tabBarButton: () => null,
           headerLeft: () => {
             const nav = useNavigation();
@@ -167,8 +168,8 @@ function MainTabs({ navigation }) {
       <Tab.Screen
         name="SaleDetail"
         component={SaleDetailScreen}
-        options={{ 
-          title: 'Détails de la vente', 
+        options={{
+          title: 'Détails de la vente',
           tabBarButton: () => null,
           headerLeft: () => {
             const nav = useNavigation();
@@ -178,6 +179,16 @@ function MainTabs({ navigation }) {
               </TouchableOpacity>
             );
           }
+        }}
+      />
+      <Tab.Screen
+        name="Sync"
+        component={SyncScreen}
+        options={{
+          title: 'Synchronisation',
+          tabBarIcon: ({ focused }) => (
+            <TabIcon emoji="🔄" label="Sync" focused={focused} />
+          ),
         }}
       />
     </Tab.Navigator>
