@@ -1,0 +1,9 @@
+# backend/requirements.txt
+# Dépendances du serveur API
+
+flask==3.1.3
+flask-cors==6.0.2
+pyjwt==2.8.1
+flask-limiter==3.5.0
+python-dotenv==1.0.0
+werkzeug==3.1.8

@@ -38,10 +38,14 @@ def require_auth(f):
     from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Support pour les deux formats de token : Authorization Bearer ET X-API-Token
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            token = request.headers.get('X-API-Token', '')
+        
         user = verify_token(token)
         if not user:
-            return jsonify({'error': 'Non autorisé'}), 401
+            return jsonify({'error': 'Non autorisé', 'success': False}), 401
         request.current_user = user
         return f(*args, **kwargs)
     return decorated
@@ -79,8 +83,11 @@ def login():
     TOKENS[token] = {'id': user['id'], 'username': user['username'], 'role': user['role']}
     
     return jsonify({
-        'token': token,
-        'user': {'id': user['id'], 'username': user['username'], 'role': user['role']}
+        'success': True,
+        'data': {
+            'token': token,
+            'user': {'id': user['id'], 'username': user['username'], 'role': user['role']}
+        }
     })
 
 
@@ -88,8 +95,10 @@ def login():
 @require_auth
 def logout():
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token:
+        token = request.headers.get('X-API-Token', '')
     TOKENS.pop(token, None)
-    return jsonify({'message': 'Déconnecté'})
+    return jsonify({'success': True, 'data': {'message': 'Déconnecté'}})
 
 
 # ─── DASHBOARD ────────────────────────────────────────────────────────────────
@@ -121,14 +130,17 @@ def dashboard_stats():
     
     db.close()
     return jsonify({
-        'salesToday': float(sales_today),
-        'growth': 12.4,  # TODO: calculer dynamiquement
-        'activeOrders': 23,
-        'lowStockCount': low_stock,
-        'totalProducts': total_products,
-        'monthlyRevenue': float(sales_year),
-        'netProfit': float(sales_year) - float(purchases_year),
-        'grossMargin': round((float(sales_year) - float(purchases_year)) / max(float(sales_year), 1) * 100, 1),
+        'success': True,
+        'data': {
+            'salesToday': float(sales_today),
+            'growth': 12.4,  # TODO: calculer dynamiquement
+            'activeOrders': 23,
+            'lowStockCount': low_stock,
+            'totalProducts': total_products,
+            'monthlyRevenue': float(sales_year),
+            'netProfit': float(sales_year) - float(purchases_year),
+            'grossMargin': round((float(sales_year) - float(purchases_year)) / max(float(sales_year), 1) * 100, 1),
+        }
     })
 
 
@@ -151,7 +163,7 @@ def sales_week():
         from datetime import timedelta, date
         d = (date.today() - timedelta(days=6-i)).strftime('%Y-%m-%d')
         result.append({'day': days_labels[i], 'total': days_map.get(d, 0)})
-    return jsonify(result)
+    return jsonify({'success': True, 'data': result})
 
 
 # ─── VENTES ───────────────────────────────────────────────────────────────────
@@ -166,7 +178,7 @@ def get_sales():
         ORDER BY sale_date DESC LIMIT ?
     """, (limit,)).fetchall()
     db.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
 @app.route('/api/sales/<int:sale_id>')
@@ -181,7 +193,7 @@ def get_sale(sale_id):
     
     if not sale:
         db.close()
-        return jsonify({'error': 'Vente introuvable'}), 404
+        return jsonify({'success': False, 'error': 'Vente introuvable'}), 404
     
     items = db.execute("""
         SELECT si.*, p.name as product_name
@@ -192,7 +204,7 @@ def get_sale(sale_id):
     db.close()
     result = dict(sale)
     result['items'] = [dict(i) for i in items]
-    return jsonify(result)
+    return jsonify({'success': True, 'data': result})
 
 
 # ─── PRODUCTS / STOCK ─────────────────────────────────────────────────────────
@@ -208,7 +220,7 @@ def get_products():
         ORDER BY p.name
     """, (f'%{search}%',)).fetchall()
     db.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
 @app.route('/api/products/barcode/<barcode>')
@@ -218,8 +230,8 @@ def get_by_barcode(barcode):
     row = db.execute("SELECT * FROM products WHERE barcode = ?", (barcode,)).fetchone()
     db.close()
     if not row:
-        return jsonify({'error': 'Produit introuvable'}), 404
-    return jsonify(dict(row))
+        return jsonify({'success': False, 'error': 'Produit introuvable'}), 404
+    return jsonify({'success': True, 'data': dict(row)})
 
 
 @app.route('/api/products/low-stock')
@@ -230,7 +242,7 @@ def low_stock():
         SELECT * FROM products WHERE stock_quantity <= min_stock ORDER BY stock_quantity
     """).fetchall()
     db.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
 @app.route('/api/stock/movements')
@@ -243,7 +255,7 @@ def stock_movements():
         ORDER BY created_at DESC LIMIT 50
     """).fetchall()
     db.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
 # ─── EMPLOYEES ────────────────────────────────────────────────────────────────
@@ -255,7 +267,7 @@ def get_employees():
         "SELECT id, username, role, is_active, last_login FROM users ORDER BY username"
     ).fetchall()
     db.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
 # ─── CLIENTS ──────────────────────────────────────────────────────────────────
@@ -268,7 +280,7 @@ def get_clients():
         "SELECT * FROM clients WHERE name LIKE ? ORDER BY name", (f'%{search}%',)
     ).fetchall()
     db.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
 # ─── REPORTS ──────────────────────────────────────────────────────────────────
@@ -296,10 +308,13 @@ def monthly_report():
     
     db.close()
     return jsonify({
-        'period': period,
-        'totalRevenue': float(sales['t']),
-        'invoiceCount': sales['c'],
-        'topProducts': [dict(r) for r in top_products],
+        'success': True,
+        'data': {
+            'period': period,
+            'totalRevenue': float(sales['t']),
+            'invoiceCount': sales['c'],
+            'topProducts': [dict(r) for r in top_products],
+        }
     })
 
 
@@ -313,13 +328,102 @@ def top_products():
         GROUP BY si.product_id ORDER BY total_revenue DESC LIMIT 10
     """).fetchall()
     db.close()
-    return jsonify([dict(r) for r in rows])
+    return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
-# ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
+# ─── HEALTH CHECK / PING ──────────────────────────────────────────────────────
 @app.route('/api/health')
 def health():
     return jsonify({'status': 'ok', 'db': DB_PATH, 'time': datetime.now().isoformat()})
+
+
+@app.route('/api/ping')
+def ping():
+    """Endpoint de test de connexion (utilisé par le mobile)"""
+    return jsonify({'success': True, 'status': 'online', 'time': datetime.now().isoformat()})
+
+
+# ─── SYNCHRONISATION ──────────────────────────────────────────────────────────
+@app.route('/api/sync')
+@require_auth
+def sync():
+    """Endpoint principal de synchronisation pour l'app mobile
+    
+    Récupère tous les produits, clients et ventes depuis une date optionnelle.
+    Retourne le format attendu par le frontend.
+    """
+    since = request.args.get('since', None)
+    
+    db = get_db()
+    result = {
+        'success': True,
+        'data': {
+            'produits': [],
+            'clients': [],
+            'ventes': []
+        },
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    # Récupérer les produits
+    try:
+        products_query = "SELECT * FROM products"
+        if since:
+            products_query += f" WHERE updated_at > ? OR created_at > ?"
+            products = db.execute(products_query, (since, since)).fetchall()
+        else:
+            products = db.execute(products_query).fetchall()
+        result['data']['produits'] = [dict(p) for p in products]
+    except Exception as e:
+        result['data']['produits'] = []
+        print(f"Erreur lecture produits: {e}")
+    
+    # Récupérer les clients
+    try:
+        clients_query = "SELECT * FROM clients"
+        if since:
+            clients_query += f" WHERE updated_at > ? OR created_at > ?"
+            clients = db.execute(clients_query, (since, since)).fetchall()
+        else:
+            clients = db.execute(clients_query).fetchall()
+        result['data']['clients'] = [dict(c) for c in clients]
+    except Exception as e:
+        result['data']['clients'] = []
+        print(f"Erreur lecture clients: {e}")
+    
+    # Récupérer les ventes avec les détails
+    try:
+        sales_query = """
+            SELECT s.*, c.name as client_name 
+            FROM sales s 
+            LEFT JOIN clients c ON s.client_id = c.id
+        """
+        if since:
+            sales_query += f" WHERE s.updated_at > ? OR s.created_at > ?"
+            sales = db.execute(sales_query, (since, since)).fetchall()
+        else:
+            sales = db.execute(sales_query).fetchall()
+        
+        ventes = []
+        for s in sales:
+            vente = dict(s)
+            # Récupérer les items de la vente
+            items = db.execute("""
+                SELECT si.*, p.name as product_name
+                FROM sale_items si
+                LEFT JOIN products p ON si.product_id = p.id
+                WHERE si.sale_id = ?
+            """, (s['id'],)).fetchall()
+            vente['items'] = [dict(i) for i in items]
+            ventes.append(vente)
+        
+        result['data']['ventes'] = ventes
+    except Exception as e:
+        result['data']['ventes'] = []
+        print(f"Erreur lecture ventes: {e}")
+    
+    db.close()
+    return jsonify(result)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-// App.js — Point d'entrée avec AuthProvider et sync
+// App.js — Point d'entrée avec ErrorBoundary, Toast et gestion config
 
 import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
@@ -7,37 +7,55 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 import { syncManager } from './src/services/api';
 import { initDatabase } from './src/database/database';
+import { loadConfig } from './src/config/config';
+import { logger } from './src/services/logger';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import ToastContainer from './src/components/ToastContainer';
 
 export default function App() {
   useEffect(() => {
     async function startApp() {
       try {
-        // 1. Initialiser la base d'abord (séquentiel)
-        await initDatabase();
+        logger.info('Démarrage de l\'application');
         
-        // 2. Lancer la sync initiale après
+        // 1. Charger la configuration
+        await loadConfig();
+        logger.debug('Configuration chargée');
+        
+        // 2. Initialiser la base de données
+        await initDatabase();
+        logger.debug('Base de données initialisée');
+        
+        // 3. Lancer la sync initiale après
         await syncManager.syncAllData();
+        logger.info('Synchronisation initiale réussie');
       } catch (err) {
-        console.error("Erreur au démarrage de l'app:", err);
+        logger.error('Erreur au démarrage de l\'app', err);
+        // L'ErrorBoundary affichera le message à l'utilisateur
       }
     }
 
     startApp();
 
-    // Synchronisation périodique toutes les 5 minutes
+    // Synchronisation périodique
     const interval = setInterval(() => {
-      syncManager.syncAllData();
+      syncManager.syncAllData().catch((err) => {
+        logger.warn('Erreur sync périodique', err);
+      });
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <StatusBar style="light" backgroundColor="#1976D2" />
-        <AppNavigator />
-      </AuthProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <StatusBar style="light" backgroundColor="#1976D2" />
+          <AppNavigator />
+          <ToastContainer />
+        </AuthProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }

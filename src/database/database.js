@@ -1,6 +1,7 @@
 // src/database/database.js
 import * as SQLite from 'expo-sqlite';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { logger } from '../services/logger';
 
 
 // Ouvrir (ou créer) la base de données — instance unique partagée
@@ -78,7 +79,7 @@ export const initDatabase = () =>
       for (const [col, type] of Object.entries(columnsToAdd)) {
         if (!existingColumns.includes(col)) {
           await db.execAsync(`ALTER TABLE sales ADD COLUMN ${col} ${type}`);
-          console.log(`✅ Colonne ${col} ajoutée à sales`);
+          logger.info(`Column ${col} added to sales`);
         }
       }
 
@@ -173,9 +174,9 @@ export const initDatabase = () =>
       await _initUsersTableInternal();
       await _migrateAddImageColumnInternal();
 
-      console.log('✅ Base de données SQLite initialisée');
+      logger.info('SQLite database initialized');
     } catch (error) {
-      console.error('Erreur initialisation DB:', error);
+      logger.error('DB initialization error', error);
     }
   });
 
@@ -197,7 +198,7 @@ export const saveProductsLocally = (products) =>
       return true;
     } catch (innerError) {
       await db.execAsync('ROLLBACK');
-      console.error('Erreur saveProductsLocally:', innerError);
+      logger.error('Erreur saveProductsLocally', innerError);
       return false;
     }
   });
@@ -207,7 +208,7 @@ export const getLocalProducts = async () => {
     const result = await db.getAllAsync('SELECT * FROM products');
     return result;
   } catch (error) {
-    console.error('Erreur getLocalProducts:', error);
+    logger.error('Erreur getLocalProducts', error);
     return [];
   }
 };
@@ -217,7 +218,7 @@ export const getProductByBarcode = async (barcode) => {
     const result = await db.getFirstAsync('SELECT * FROM products WHERE barcode = ?', barcode);
     return result;
   } catch (error) {
-    console.error('Erreur getProductByBarcode:', error);
+    logger.error('Erreur getProductByBarcode', error);
     return null;
   }
 };
@@ -251,7 +252,7 @@ export const findProductByAny = async (query) => {
 
     return result;
   } catch (error) {
-    console.error('Erreur findProductByAny:', error);
+    logger.error('Erreur findProductByAny', error);
     return null;
   }
 };
@@ -262,7 +263,7 @@ export const updateProductStock = (productId, newStock) =>
       await db.runAsync('UPDATE products SET stock_quantity = ? WHERE id = ?', newStock, productId);
       return true;
     } catch (error) {
-      console.error('Erreur updateProductStock:', error);
+      logger.error('Erreur updateProductStock', error);
       return false;
     }
   });
@@ -283,7 +284,7 @@ export const updateProduct = (productId, productData) =>
       );
       return true;
     } catch (error) {
-      console.error('Erreur updateProduct:', error);
+      logger.error('Erreur updateProduct', error);
       return false;
     }
   });
@@ -294,7 +295,7 @@ export const deleteProduct = (productId) =>
       await db.runAsync('DELETE FROM products WHERE id = ?', productId);
       return true;
     } catch (error) {
-      console.error('Erreur deleteProduct:', error);
+      logger.error('Erreur deleteProduct', error);
       return false;
     }
   });
@@ -320,7 +321,7 @@ export const saveClientsLocally = (clients) =>
       return true;
     } catch (innerError) {
       await db.execAsync('ROLLBACK');
-      console.error('Erreur saveClientsLocally:', innerError);
+      logger.error('Erreur saveClientsLocally', innerError);
       return false;
     }
   });
@@ -329,7 +330,7 @@ export const getLocalClients = async () => {
   try {
     return await db.getAllAsync('SELECT * FROM clients');
   } catch (error) {
-    console.error('Erreur getLocalClients:', error);
+    logger.error('Erreur getLocalClients', error);
     return [];
   }
 };
@@ -343,7 +344,7 @@ export const setLastSyncTime = () =>
         new Date().toISOString()
       );
     } catch (error) {
-      console.error('Erreur setLastSyncTime:', error);
+      logger.error('Erreur setLastSyncTime', error);
     }
   });
 
@@ -352,7 +353,7 @@ export const getLastSyncTime = async () => {
     const result = await db.getFirstAsync('SELECT value FROM sync_info WHERE key = "last_sync"');
     return result ? result.value : null;
   } catch (error) {
-    console.error('Erreur getLastSyncTime:', error);
+    logger.error('Erreur getLastSyncTime', error);
     return null;
   }
 };
@@ -369,7 +370,7 @@ export const saveDashboardStatsOffline = (stats) =>
         new Date().toISOString()
       );
     } catch (error) {
-      console.error('Erreur saveDashboardStatsOffline:', error);
+      logger.error('Erreur saveDashboardStatsOffline', error);
     }
   });
 
@@ -383,7 +384,7 @@ export const getDashboardStatsOffline = async () => {
     }
     return stats;
   } catch (error) {
-    console.error('Erreur getDashboardStatsOffline:', error);
+    logger.error('Erreur getDashboardStatsOffline', error);
     return null;
   }
 };
@@ -396,7 +397,7 @@ export const saveSalesWeekOffline = (salesWeek) =>
         await db.runAsync('INSERT INTO sales_week (day, total) VALUES (?, ?)', day.day, day.total);
       }
     } catch (error) {
-      console.error('Erreur saveSalesWeekOffline:', error);
+      logger.error('Erreur saveSalesWeekOffline', error);
     }
   });
 
@@ -404,7 +405,7 @@ export const getSalesWeekOffline = async () => {
   try {
     return await db.getAllAsync('SELECT day, total FROM sales_week ORDER BY id');
   } catch (error) {
-    console.error('Erreur getSalesWeekOffline:', error);
+    logger.error('Erreur getSalesWeekOffline', error);
     return [];
   }
 };
@@ -421,7 +422,7 @@ export const saveLowStockOffline = (lowStock) =>
         );
       }
     } catch (error) {
-      console.error('Erreur saveLowStockOffline:', error);
+      logger.error('Erreur saveLowStockOffline', error);
     }
   });
 
@@ -429,7 +430,7 @@ export const getLowStockOffline = async () => {
   try {
     return await db.getAllAsync('SELECT * FROM low_stock');
   } catch (error) {
-    console.error('Erreur getLowStockOffline:', error);
+    logger.error('Erreur getLowStockOffline', error);
     return [];
   }
 };
@@ -449,7 +450,7 @@ export const saveEmployeesOffline = (employees) =>
         );
       }
     } catch (error) {
-      console.error('Erreur saveEmployeesOffline:', error);
+      logger.error('Erreur saveEmployeesOffline', error);
     }
   });
 
@@ -457,7 +458,7 @@ export const getEmployeesOffline = async () => {
   try {
     return await db.getAllAsync('SELECT * FROM employees');
   } catch (error) {
-    console.error('Erreur getEmployeesOffline:', error);
+    logger.error('Erreur getEmployeesOffline', error);
     return [];
   }
 };
@@ -472,7 +473,7 @@ export const addPendingAction = (action) =>
         action.type, JSON.stringify(action.data), new Date().toISOString()
       );
     } catch (error) {
-      console.error('Erreur addPendingAction:', error);
+      logger.error('Erreur addPendingAction', error);
     }
   });
 
@@ -480,7 +481,7 @@ export const getPendingActions = async () => {
   try {
     return await db.getAllAsync('SELECT * FROM pending_actions ORDER BY id');
   } catch (error) {
-    console.error('Erreur getPendingActions:', error);
+    logger.error('Erreur getPendingActions', error);
     return [];
   }
 };
@@ -490,7 +491,7 @@ export const removePendingAction = (actionId) =>
     try {
       await db.runAsync('DELETE FROM pending_actions WHERE id = ?', actionId);
     } catch (error) {
-      console.error('Erreur removePendingAction:', error);
+      logger.error('Erreur removePendingAction', error);
     }
   });
 
@@ -518,9 +519,9 @@ export const clearAllData = () =>
       `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
       'admin', 'admin123', 'admin', 'Administrateur', new Date().toISOString()
     );
-    console.log('🗑️ Toutes les données SQLite effacées, admin recréé');
+    logger.info('All SQLite data cleared, admin recreated');
     } catch (error) {
-      console.error('Erreur clearAllData:', error);
+      logger.error('Erreur clearAllData', error);
     }
   });
 
@@ -546,7 +547,7 @@ const _initUsersTableInternal = async () => {
       );
     }
   } catch (error) {
-    console.error('Erreur _initUsersTableInternal:', error);
+    logger.error('Erreur _initUsersTableInternal', error);
   }
 };
 
@@ -556,7 +557,7 @@ export const getUsers = async () => {
   try {
     return await db.getAllAsync('SELECT id, username, role, fullname, created_at FROM users');
   } catch (error) {
-    console.error('Erreur getUsers:', error);
+    logger.error('Erreur getUsers', error);
     return [];
   }
 };
@@ -565,7 +566,7 @@ export const getUserByUsername = async (username) => {
   try {
     return await db.getFirstAsync('SELECT * FROM users WHERE username = ?', username);
   } catch (error) {
-    console.error('Erreur getUserByUsername:', error);
+    logger.error('Erreur getUserByUsername', error);
     return null;
   }
 };
