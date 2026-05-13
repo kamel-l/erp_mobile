@@ -1,13 +1,31 @@
 // src/services/logger.js
 // Service de logging centralisé
+// Note: N'importe PAS config.js pour éviter la dépendance circulaire
+// (config.js importe logger → logger ne doit PAS importer config)
 
-import { getConfig } from '../config/config';
+// Valeurs par défaut indépendantes
+const DEFAULT_LOG_LEVEL = 'info';
+const DEFAULT_DEBUG = __DEV__ || false;
 
 class Logger {
   constructor() {
-    this.logLevel = getConfig('LOG_LEVEL') || 'info';
+    this.logLevel = DEFAULT_LOG_LEVEL;
+    this.debug_mode = DEFAULT_DEBUG;
     this.logs = [];
     this.maxLogs = 500; // Garder les 500 derniers logs en mémoire
+  }
+
+  /**
+   * Permet à config.js de mettre à jour le niveau de log après initialisation
+   */
+  setLevel(level) {
+    if (['debug', 'info', 'warn', 'error'].includes(level)) {
+      this.logLevel = level;
+    }
+  }
+
+  setDebug(enabled) {
+    this.debug_mode = enabled;
   }
 
   /**
@@ -23,8 +41,8 @@ class Logger {
     }
 
     // Aussi afficher en console
-    const logFunc = console[level] || console.log;
-    if (getConfig('DEBUG')) {
+    if (this.debug_mode) {
+      const logFunc = console[level] || console.log;
       logFunc(`[${level.toUpperCase()}] ${timestamp} ${message}`, data);
     }
   }
@@ -68,7 +86,7 @@ class Logger {
   }
 
   /**
-   * Exporter les logs (pour envoi au serveur)
+   * Exporter les logs
    */
   exportLogs() {
     return JSON.stringify(this.logs, null, 2);
