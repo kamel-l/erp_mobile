@@ -13,6 +13,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const showDevHint = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 
   const handleLogin = async () => {
     if (!username.trim() || !password.trim()) {
@@ -98,9 +99,11 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          <View style={styles.hint}>
-            <Text style={styles.hintText}>Compte admin par defaut : admin / admin123</Text>
-          </View>
+          {showDevHint ? (
+            <View style={styles.hint}>
+              <Text style={styles.hintText}>Mode dev: compte local par défaut admin / admin123</Text>
+            </View>
+          ) : null}
         </View>
 
         <Text style={styles.version}>Version 1.0.0</Text>

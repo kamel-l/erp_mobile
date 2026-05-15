@@ -3,10 +3,11 @@ import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 import * as Network from 'expo-network';
 import { MOCK_DATA } from './mockData';
-import { getConfig } from '../config/config';
+import { getConfig, setConfig } from '../config/config';
 import { logger } from './logger';
 import { handleNetworkError, retryWithBackoff, AppError } from './errorHandler';
 import { toast } from '../components/Toast';
+import { cache } from '../utils/performanceOptimizations';
 import {
   getLocalProducts,
   saveProductsLocally,
@@ -27,6 +28,9 @@ import {
   getLastSyncTime,
 } from '../database/database';
 import { getLocalSales, saveSaleLocally, saveSalesOffline } from '../database/salesRepository';
+
+const ALLOW_INSECURE_DEFAULT_ADMIN =
+  typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 
 // ========== CONFIGURATION ==========
 // Utiliser la config centralisée (par défaut ou personnalisée)
@@ -68,9 +72,9 @@ let api = getApiClient();
 export const isConnected = async () => {
   try {
     const netInfo = await Network.getNetworkStateAsync();
-    return netInfo.isConnected || true; // Fallback toujours connecté pour dev
+    return Boolean(netInfo.isConnected);
   } catch {
-    return true;
+    return false;
   }
 };
 
@@ -133,8 +137,8 @@ export const authAPI = {
           throw new AppError('Token manquant de la réponse', 'NO_TOKEN');
         }
       } else {
-        // Mode hors ligne : accepter admin/admin123
-        if (username === 'admin' && password === 'admin123') {
+        // Mode hors ligne (dev seulement) : accepter admin/admin123
+        if (ALLOW_INSECURE_DEFAULT_ADMIN && username === 'admin' && password === 'admin123') {
           const offlineUser = { id: 1, username: 'admin', role: 'Administrateur' };
           await SecureStore.setItemAsync('user_data', JSON.stringify(offlineUser));
           logger.info('Connexion offline', { user: username });
@@ -538,6 +542,9 @@ export const syncManager = {
       await salesAPI.getClients();
       await salesAPI.getAll();
       await hrAPI.getEmployees();
+
+      // IMPORTANT: Vider le cache pour forcer le rafraîchissement des écrans
+      cache.clear();
 
       await setLastSyncTime();
       logger.info('Sync completed');

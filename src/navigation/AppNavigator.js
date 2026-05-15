@@ -11,7 +11,7 @@ import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import SalesScreen from '../screens/SalesScreen';
 import StockScreen from '../screens/StockScreen';
-import ClientsScreen from '../screens/ClientsScreen';
+import ClientsScreen from '../screens/ClientsScreen_Optimized';
 import ReportsScreen from '../screens/ReportsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';

@@ -259,7 +259,7 @@ export default function ClientsScreenOptimized() {
         renderItem={({ item }) => (
           <ClientCard
             client={item}
-            onPress={() => logger.debug('Client tapped'); }
+            onPress={() => logger.debug('Client tapped')}
             onLongPress={() => deleteClient(item)}
           />
         )}
@@ -268,7 +268,7 @@ export default function ClientsScreenOptimized() {
           paginatedClients.length > 0 ? (
             <View style={styles.pagination}>
               <TouchableOpacity
-                style={[styles.pageBtn, !pagination.hasPreviousPage && styles.pagebtnDisabled]}
+                style={[styles.pageBtn, !pagination.hasPreviousPage && styles.pageBtnDisabled]}
                 onPress={pagination.previousPage}
                 disabled={!pagination.hasPreviousPage}
               >
@@ -278,7 +278,7 @@ export default function ClientsScreenOptimized() {
                 {pagination.currentPage} / {pagination.totalPages}
               </Text>
               <TouchableOpacity
-                style={[styles.pageBtn, !pagination.hasNextPage && styles.pageBtn Disabled]}
+                style={[styles.pageBtn, !pagination.hasNextPage && styles.pageBtnDisabled]}
                 onPress={pagination.nextPage}
                 disabled={!pagination.hasNextPage}
               >

@@ -7,6 +7,8 @@ import { authAPI } from '../services/api';
 import { setCurrentUser, clearCurrentUser } from '../database/database';
 
 const AuthContext = createContext(null);
+const ALLOW_INSECURE_DEFAULT_ADMIN =
+  typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -25,8 +27,8 @@ export function AuthProvider({ children }) {
       await setCurrentUser(data.user);
       return { success: true };
     } catch (err) {
-      // Mode offline : admin/admin123
-      if (username === 'admin' && password === 'admin123') {
+      // Mode offline (dev seulement) : admin/admin123
+      if (ALLOW_INSECURE_DEFAULT_ADMIN && username === 'admin' && password === 'admin123') {
         const offlineUser = { id: 1, username: 'admin', role: 'admin', displayName: 'Administrateur' };
         await SecureStore.setItemAsync('auth_token', 'offline-token');
         await SecureStore.setItemAsync('user_data', JSON.stringify(offlineUser));

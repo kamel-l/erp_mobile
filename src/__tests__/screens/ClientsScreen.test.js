@@ -64,10 +64,9 @@ describe('ClientsScreen', () => {
     const { getByPlaceholderText, getByText } = renderWithNav(<ClientsScreen />);
     
     await waitFor(() => {
-      const searchInput = getByPlaceholderText(/Rechercher/i) || getByPlaceholderText(/Search/i);
-      if (searchInput) {
-        fireEvent.changeText(searchInput, 'Client');
-      }
-    }, { timeout: 3000 });
+      const searchInput = getByPlaceholderText(/Nom, téléphone, email/i);
+      fireEvent.changeText(searchInput, 'Client');
+      expect(getByText('Client Test')).toBeTruthy();
+    });
   });
 });

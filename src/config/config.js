@@ -1,6 +1,5 @@
 // src/config/config.js
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { logger } from '../services/logger';
 
 const CONFIG = {
   // Par défaut
@@ -40,7 +39,7 @@ export const loadConfig = async () => {
       }
     });
   } catch (err) {
-    logger.warn('Erreur chargement config', err);
+    console.warn('Erreur chargement config', err);
   }
 };
 

@@ -1,50 +1,50 @@
-# 📱 DAR ELSSALEM ERP — Application Android
+﻿# ðŸ“± DAR ELSSALEM ERP â€” Application Android
 
-Application mobile React Native (Expo) pour votre système ERP.
+Application mobile React Native (Expo) pour votre systÃ¨me ERP.
 
-## 🏗️ Structure du projet
+## ðŸ—ï¸ Structure du projet
 
 ```
 erp-mobile/
-├── App.js                          # Point d'entrée
-├── app.json                        # Config Expo
-├── eas.json                        # Config build APK
-├── package.json                    # Dépendances npm
-├── backend/
-│   └── api_server.py               # ← Serveur Python Flask (sur votre PC)
-└── src/
-    ├── screens/
-    │   ├── LoginScreen.js          # Connexion
-    │   ├── DashboardScreen.js      # Tableau de bord
-    │   ├── SalesScreen.js          # Ventes & Factures
-    │   ├── StockScreen.js          # Stock & Inventaire
-    │   ├── ClientsScreen.js        # Clients
-    │   └── ReportsScreen.js        # Rapports & Analyses
-    ├── components/
-    │   └── UIComponents.js         # Composants réutilisables
-    ├── navigation/
-    │   └── AppNavigator.js         # Navigation onglets
-    └── services/
-        ├── api.js                  # Connexion API backend
-        └── theme.js                # Couleurs & styles
+â”œâ”€â”€ App.js                          # Point d'entrÃ©e
+â”œâ”€â”€ app.json                        # Config Expo
+â”œâ”€â”€ eas.json                        # Config build APK
+â”œâ”€â”€ package.json                    # DÃ©pendances npm
+â”œâ”€â”€ backend/
+â”‚   â””â”€â”€ api_server.py               # â† Serveur Python Flask (sur votre PC)
+â””â”€â”€ src/
+    â”œâ”€â”€ screens/
+    â”‚   â”œâ”€â”€ LoginScreen.js          # Connexion
+    â”‚   â”œâ”€â”€ DashboardScreen.js      # Tableau de bord
+    â”‚   â”œâ”€â”€ SalesScreen.js          # Ventes & Factures
+    â”‚   â”œâ”€â”€ StockScreen.js          # Stock & Inventaire
+    â”‚   â”œâ”€â”€ ClientsScreen.js        # Clients
+    â”‚   â””â”€â”€ ReportsScreen.js        # Rapports & Analyses
+    â”œâ”€â”€ components/
+    â”‚   â””â”€â”€ UIComponents.js         # Composants rÃ©utilisables
+    â”œâ”€â”€ navigation/
+    â”‚   â””â”€â”€ AppNavigator.js         # Navigation onglets
+    â””â”€â”€ services/
+        â”œâ”€â”€ api.js                  # Connexion API backend
+        â””â”€â”€ theme.js                # Couleurs & styles
 ```
 
 ---
 
-## ⚡ Installation rapide (3 étapes)
+## âš¡ Installation rapide (3 Ã©tapes)
 
-### Étape 1 — Installer les outils
+### Ã‰tape 1 â€” Installer les outils
 
 ```bash
 # Installer Node.js (https://nodejs.org) puis :
 npm install -g expo-cli eas-cli
 
-# Installer les dépendances du projet
+# Installer les dÃ©pendances du projet
 cd erp-mobile
 npm install
 ```
 
-### Étape 2 — Lancer le backend Python
+### Ã‰tape 2 â€” Lancer le backend Python
 
 ```bash
 # Dans un autre terminal, depuis le dossier erp-mobile
@@ -54,39 +54,39 @@ python backend/api_server.py
 
 Le terminal affiche votre IP locale, ex: `http://192.168.1.45:5000`
 
-**⚠️ Important :** Ouvrez `src/services/api.js` et remplacez :
+**âš ï¸ Important :** Ouvrez `src/services/api.js` et remplacez :
 ```js
-const BASE_URL = 'http://192.168.1.100:5000/api';  // ← Remplacez par VOTRE IP
+const BASE_URL = 'http://192.168.1.100:5000/api';  // â† Remplacez par VOTRE IP
 ```
 
-### Étape 3 — Lancer l'app
+### Ã‰tape 3 â€” Lancer l'app
 
 ```bash
-# Option A : Tester sur votre téléphone (app Expo Go)
+# Option A : Tester sur votre tÃ©lÃ©phone (app Expo Go)
 npx expo start
-# Scannez le QR code avec l'app "Expo Go" sur votre téléphone Android
+# Scannez le QR code avec l'app "Expo Go" sur votre tÃ©lÃ©phone Android
 
-# Option B : Émulateur Android Studio
+# Option B : Ã‰mulateur Android Studio
 npx expo start --android
 ```
 
 ---
 
-## 📦 Générer un APK installable
+## ðŸ“¦ GÃ©nÃ©rer un APK installable
 
-### Méthode 1 — EAS Build (recommandé, cloud)
+### MÃ©thode 1 â€” EAS Build (recommandÃ©, cloud)
 
 ```bash
-# Créer un compte sur https://expo.dev (gratuit)
+# CrÃ©er un compte sur https://expo.dev (gratuit)
 eas login
 eas build -p android --profile preview
-# L'APK est téléchargeable depuis le dashboard Expo
+# L'APK est tÃ©lÃ©chargeable depuis le dashboard Expo
 ```
 
-### Méthode 2 — Build local
+### MÃ©thode 2 â€” Build local
 
 ```bash
-# Nécessite Android Studio + JDK 17
+# NÃ©cessite Android Studio + JDK 17
 npx expo prebuild --platform android
 cd android
 ./gradlew assembleRelease
@@ -95,61 +95,61 @@ cd android
 
 ---
 
-## 🔗 Connexion à votre ERP existant
+## ðŸ”— Connexion Ã  votre ERP existant
 
-L'app se connecte à votre base de données `erp_database.db` via le serveur Flask.
+L'app se connecte Ã  votre base de donnÃ©es `erp_database.db` via le serveur Flask.
 
 **Conditions requises :**
-- Votre PC (qui fait tourner l'ERP Python) et votre téléphone sont sur le **même Wi-Fi**
+- Votre PC (qui fait tourner l'ERP Python) et votre tÃ©lÃ©phone sont sur le **mÃªme Wi-Fi**
 - Le pare-feu Windows/Linux autorise le port 5000
-- Python et Flask sont installés
+- Python et Flask sont installÃ©s
 
 **Test de connexion :**
 ```bash
 # Dans votre navigateur sur le PC :
 http://localhost:5000/api/health
-# Sur le téléphone (remplacez l'IP) :
+# Sur le tÃ©lÃ©phone (remplacez l'IP) :
 http://192.168.1.45:5000/api/health
-# Réponse attendue : {"status": "ok", ...}
+# RÃ©ponse attendue : {"status": "ok", ...}
 ```
 
 ### Mode hors-ligne (sans backend)
 
-L'app fonctionne aussi en mode démo sans backend avec des données fictives.
-Pour se connecter : **admin / admin123**
+L'app fonctionne aussi en mode dÃ©mo sans backend avec des donnÃ©es fictives.
+En mode développement uniquement, vous pouvez utiliser : **admin / admin123**
 
 ---
 
-## 🔐 Sécurité en production
+## ðŸ” SÃ©curitÃ© en production
 
-Pour déployer en production :
+Pour dÃ©ployer en production :
 
 1. **HTTPS** : Utilisez nginx + Let's Encrypt devant Flask
-2. **JWT** : Le token est stocké dans `expo-secure-store` (chiffré sur le device)
+2. **JWT** : Le token est stockÃ© dans `expo-secure-store` (chiffrÃ© sur le device)
 3. **Changez le SECRET_KEY** dans `api_server.py`
-4. **Limitez les IPs** autorisées dans la config CORS
+4. **Limitez les IPs** autorisÃ©es dans la config CORS
 
 ---
 
-## 📱 Fonctionnalités par écran
+## ðŸ“± FonctionnalitÃ©s par Ã©cran
 
-| Écran | Fonctionnalités |
+| Ã‰cran | FonctionnalitÃ©s |
 |-------|----------------|
-| **Dashboard** | KPIs temps réel, graphique 7 jours, alertes stock/factures |
-| **Ventes** | Liste factures, recherche, statuts, export PDF, résumé mensuel |
+| **Dashboard** | KPIs temps rÃ©el, graphique 7 jours, alertes stock/factures |
+| **Ventes** | Liste factures, recherche, statuts, export PDF, rÃ©sumÃ© mensuel |
 | **Stock** | Inventaire complet, scan code-barres, alertes critiques, mouvements |
-| **RH** | Présences (cliquables), salaires, masse salariale |
+| **RH** | PrÃ©sences (cliquables), salaires, masse salariale |
 | **Rapports** | CA mensuel, top produits/clients, export PDF/CSV/Excel |
 
 ---
 
-## 🛠️ Personnalisation
+## ðŸ› ï¸ Personnalisation
 
 ### Changer les couleurs
-Éditez `src/services/theme.js` → `COLORS.primary`
+Ã‰ditez `src/services/theme.js` â†’ `COLORS.primary`
 
-### Ajouter un nouvel écran
-1. Créez `src/screens/MonEcran.js`
+### Ajouter un nouvel Ã©cran
+1. CrÃ©ez `src/screens/MonEcran.js`
 2. Ajoutez-le dans `src/navigation/AppNavigator.js`
 3. Ajoutez l'endpoint dans `backend/api_server.py`
 
@@ -161,12 +161,12 @@ npx expo install expo-notifications
 
 ---
 
-## 🐛 Résolution de problèmes
+## ðŸ› RÃ©solution de problÃ¨mes
 
 **"Network Error" dans l'app :**
-- Vérifiez que le backend tourne : `python backend/api_server.py`
-- Vérifiez l'IP dans `src/services/api.js`
-- Téléphone et PC sur le même Wi-Fi ?
+- VÃ©rifiez que le backend tourne : `python backend/api_server.py`
+- VÃ©rifiez l'IP dans `src/services/api.js`
+- TÃ©lÃ©phone et PC sur le mÃªme Wi-Fi ?
 - Port 5000 ouvert dans le pare-feu ?
 
 **"Metro bundler error" :**
@@ -175,13 +175,14 @@ npx expo start --clear
 ```
 
 **L'APK ne s'installe pas :**
-- Activez "Sources inconnues" dans Paramètres Android
-- Ou utilisez EAS Build pour un APK signé
+- Activez "Sources inconnues" dans ParamÃ¨tres Android
+- Ou utilisez EAS Build pour un APK signÃ©
 
 ---
 
-## 📞 Support
+## ðŸ“ž Support
 
-Connexion backend : modifiez `src/services/api.js` → `BASE_URL`
+Connexion backend : modifiez `src/services/api.js` â†’ `BASE_URL`
 Questions ERP : consultez la documentation de votre ERP Python existant
 # erp_mobile
+

@@ -26,12 +26,21 @@ from validation import (
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS_ORIGINS = os.getenv('CORS_ORIGINS', '*')
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": "*" if CORS_ORIGINS == "*" else [o.strip() for o in CORS_ORIGINS.split(',') if o.strip()]
+        }
+    }
+)
 
 # Configuration
 DEBUG = os.getenv('DEBUG', 'false').lower() == 'true'
 DB_PATH = os.getenv('DB_PATH', '../erp_database.db')
 RATE_LIMIT_ENABLED = os.getenv('RATE_LIMIT_ENABLED', 'true').lower() == 'true'
+ENVIRONMENT = os.getenv('ENVIRONMENT', 'development').lower()
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -41,8 +50,15 @@ logger = logging.getLogger(__name__)
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
+    default_limits=["200 per day", "50 per hour"],
+    enabled=RATE_LIMIT_ENABLED
 )
+
+
+def maybe_limit(limit_value):
+    if RATE_LIMIT_ENABLED:
+        return limiter.limit(limit_value)
+    return lambda f: f
 
 
 def get_db():
@@ -67,7 +83,7 @@ def db_response(success, data=None, error=None, code=None, status=200):
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
 @app.route('/api/auth/login', methods=['POST'])
-@limiter.limit(os.getenv('RATE_LIMIT_AUTH', '10/minute'))
+@maybe_limit(os.getenv('RATE_LIMIT_AUTH', '10/minute'))
 def login():
     """Connexion utilisateur"""
     try:
@@ -116,7 +132,7 @@ def login():
 
 
 @app.route('/api/auth/refresh', methods=['POST'])
-@limiter.limit(os.getenv('RATE_LIMIT_AUTH', '10/minute'))
+@maybe_limit(os.getenv('RATE_LIMIT_AUTH', '10/minute'))
 def refresh_token():
     """Rafraîchir le access token"""
     try:
@@ -153,7 +169,7 @@ def logout():
 # ─── DASHBOARD ────────────────────────────────────────────────────────────────
 @app.route('/api/dashboard/stats', methods=['GET'])
 @require_auth
-@limiter.limit(os.getenv('RATE_LIMIT_API', '100/minute'))
+@maybe_limit(os.getenv('RATE_LIMIT_API', '100/minute'))
 def dashboard_stats():
     """Statistiques du tableau de bord"""
     try:
@@ -193,9 +209,284 @@ def dashboard_stats():
         return db_response(False, error='Erreur serveur', code='SERVER_ERROR', status=500)
 
 
+@app.route('/api/dashboard/sales-week')
+@require_auth
+def sales_week():
+    db = get_db()
+    rows = db.execute("""
+        SELECT DATE(sale_date) as day, SUM(total) as total
+        FROM sales
+        WHERE sale_date >= DATE('now', '-6 days')
+        GROUP BY day ORDER BY day
+    """).fetchall()
+    db.close()
+    
+    days_map = {r['day']: float(r['total']) for r in rows}
+    days_labels = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim']
+    result = []
+    for i in range(7):
+        from datetime import timedelta, date
+        d = (date.today() - timedelta(days=6-i)).strftime('%Y-%m-%d')
+        result.append({'day': days_labels[i], 'total': days_map.get(d, 0)})
+    return db_response(True, data=result)
+
+
+# ─── VENTES ───────────────────────────────────────────────────────────────────
+@app.route('/api/sales')
+@require_auth
+def get_sales():
+    db = get_db()
+    limit = request.args.get('limit', 20, type=int)
+    rows = db.execute("""
+        SELECT s.*, c.name as client_name
+        FROM sales s LEFT JOIN clients c ON s.client_id = c.id
+        ORDER BY sale_date DESC LIMIT ?
+    """, (limit,)).fetchall()
+    db.close()
+    return db_response(True, data=[dict(r) for r in rows])
+
+
+@app.route('/api/sales/<int:sale_id>')
+@require_auth
+def get_sale(sale_id):
+    db = get_db()
+    sale = db.execute("""
+        SELECT s.*, c.name as client_name, c.phone as client_phone
+        FROM sales s LEFT JOIN clients c ON s.client_id = c.id
+        WHERE s.id = ?
+    """, (sale_id,)).fetchone()
+    
+    if not sale:
+        db.close()
+        return db_response(False, error='Vente introuvable', code='NOT_FOUND', status=404)
+    
+    items = db.execute("""
+        SELECT si.*, p.name as product_name
+        FROM sale_items si LEFT JOIN products p ON si.product_id = p.id
+        WHERE si.sale_id = ?
+    """, (sale_id,)).fetchall()
+    
+    db.close()
+    result = dict(sale)
+    result['items'] = [dict(i) for i in items]
+    return db_response(True, data=result)
+
+
+# ─── PRODUCTS / STOCK ─────────────────────────────────────────────────────────
+@app.route('/api/products')
+@require_auth
+def get_products():
+    db = get_db()
+    search = request.args.get('search', '')
+    rows = db.execute("""
+        SELECT p.*, c.name as category_name
+        FROM products p LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.name LIKE ?
+        ORDER BY p.name
+    """, (f'%{search}%',)).fetchall()
+    db.close()
+    return db_response(True, data=[dict(r) for r in rows])
+
+
+@app.route('/api/products/barcode/<barcode>')
+@require_auth
+def get_by_barcode(barcode):
+    db = get_db()
+    row = db.execute("SELECT * FROM products WHERE barcode = ?", (barcode,)).fetchone()
+    db.close()
+    if not row:
+        return db_response(False, error='Produit introuvable', code='NOT_FOUND', status=404)
+    return db_response(True, data=dict(row))
+
+
+@app.route('/api/products/low-stock')
+@require_auth
+def low_stock():
+    db = get_db()
+    rows = db.execute("""
+        SELECT * FROM products WHERE stock_quantity <= min_stock ORDER BY stock_quantity
+    """).fetchall()
+    db.close()
+    return db_response(True, data=[dict(r) for r in rows])
+
+
+@app.route('/api/stock/movements')
+@require_auth
+def stock_movements():
+    db = get_db()
+    rows = db.execute("""
+        SELECT sm.*, p.name as product_name
+        FROM stock_movements sm LEFT JOIN products p ON sm.product_id = p.id
+        ORDER BY created_at DESC LIMIT 50
+    """).fetchall()
+    db.close()
+    return db_response(True, data=[dict(r) for r in rows])
+
+
+# ─── EMPLOYEES ────────────────────────────────────────────────────────────────
+@app.route('/api/employees')
+@require_auth
+def get_employees():
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, username, role, is_active, last_login FROM users ORDER BY username"
+    ).fetchall()
+    db.close()
+    return db_response(True, data=[dict(r) for r in rows])
+
+
+# ─── CLIENTS ──────────────────────────────────────────────────────────────────
+@app.route('/api/clients')
+@require_auth
+def get_clients():
+    db = get_db()
+    search = request.args.get('search', '')
+    rows = db.execute(
+        "SELECT * FROM clients WHERE name LIKE ? ORDER BY name", (f'%{search}%',)
+    ).fetchall()
+    db.close()
+    return db_response(True, data=[dict(r) for r in rows])
+
+
+# ─── REPORTS ──────────────────────────────────────────────────────────────────
+@app.route('/api/reports/monthly')
+@require_auth
+def monthly_report():
+    year = request.args.get('year', datetime.now().year, type=int)
+    month = request.args.get('month', datetime.now().month, type=int)
+    
+    db = get_db()
+    period = f"{year}-{month:02d}"
+    
+    sales = db.execute(
+        "SELECT COALESCE(SUM(total),0) as t, COUNT(*) as c FROM sales WHERE strftime('%Y-%m', sale_date)=?",
+        (period,)
+    ).fetchone()
+    
+    top_products = db.execute("""
+        SELECT p.name, SUM(si.quantity) as qty, SUM(si.total) as revenue
+        FROM sale_items si JOIN sales s ON si.sale_id=s.id
+        JOIN products p ON si.product_id=p.id
+        WHERE strftime('%Y-%m', s.sale_date)=?
+        GROUP BY si.product_id ORDER BY revenue DESC LIMIT 5
+    """, (period,)).fetchall()
+    
+    db.close()
+    return db_response(True, data={
+            'period': period,
+            'totalRevenue': float(sales['t']),
+            'invoiceCount': sales['c'],
+            'topProducts': [dict(r) for r in top_products],
+        })
+
+
+@app.route('/api/reports/top-products')
+@require_auth
+def top_products():
+    db = get_db()
+    rows = db.execute("""
+        SELECT p.name, SUM(si.quantity) as total_qty, SUM(si.total) as total_revenue
+        FROM sale_items si JOIN products p ON si.product_id=p.id
+        GROUP BY si.product_id ORDER BY total_revenue DESC LIMIT 10
+    """).fetchall()
+    db.close()
+    return db_response(True, data=[dict(r) for r in rows])
+
+
+@app.route('/api/ping')
+def ping():
+    """Endpoint de test de connexion (utilisé par le mobile)"""
+    return db_response(True, data={'status': 'online', 'time': datetime.now().isoformat()})
+
+
+# ─── SYNCHRONISATION ──────────────────────────────────────────────────────────
+@app.route('/api/sync')
+@require_auth
+def sync():
+    """Endpoint principal de synchronisation pour l'app mobile
+    
+    Récupère tous les produits, clients et ventes depuis une date optionnelle.
+    Retourne le format attendu par le frontend.
+    """
+    since = request.args.get('since', None)
+    
+    db = get_db()
+    result = {
+        'success': True,
+        'data': {
+            'produits': [],
+            'clients': [],
+            'ventes': []
+        },
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    # Récupérer les produits
+    try:
+        products_query = "SELECT * FROM products"
+        if since:
+            products_query += f" WHERE updated_at > ? OR created_at > ?"
+            products = db.execute(products_query, (since, since)).fetchall()
+        else:
+            products = db.execute(products_query).fetchall()
+        result['data']['produits'] = [dict(p) for p in products]
+    except Exception as e:
+        result['data']['produits'] = []
+        print(f"Erreur lecture produits: {e}")
+    
+    # Récupérer les clients
+    try:
+        clients_query = "SELECT * FROM clients"
+        if since:
+            clients_query += f" WHERE updated_at > ? OR created_at > ?"
+            clients = db.execute(clients_query, (since, since)).fetchall()
+        else:
+            clients = db.execute(clients_query).fetchall()
+        result['data']['clients'] = [dict(c) for c in clients]
+    except Exception as e:
+        result['data']['clients'] = []
+        print(f"Erreur lecture clients: {e}")
+    
+    # Récupérer les ventes avec les détails
+    try:
+        sales_query = """
+            SELECT s.*, c.name as client_name 
+            FROM sales s 
+            LEFT JOIN clients c ON s.client_id = c.id
+        """
+        if since:
+            sales_query += f" WHERE s.updated_at > ? OR s.created_at > ?"
+            sales = db.execute(sales_query, (since, since)).fetchall()
+        else:
+            sales = db.execute(sales_query).fetchall()
+        
+        ventes = []
+        for s in sales:
+            vente = dict(s)
+            # Récupérer les items de la vente
+            items = db.execute("""
+                SELECT si.*, p.name as product_name
+                FROM sale_items si
+                LEFT JOIN products p ON si.product_id = p.id
+                WHERE si.sale_id = ?
+            """, (s['id'],)).fetchall()
+            vente['items'] = [dict(i) for i in items]
+            ventes.append(vente)
+        
+        result['data']['ventes'] = ventes
+    except Exception as e:
+        result['data']['ventes'] = []
+        print(f"Erreur lecture ventes: {e}")
+    
+    db.close()
+    return db_response(True, data=result.get('data'))
+
+
+
+
 # ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
 @app.route('/api/health', methods=['GET'])
-@limiter.limit(os.getenv('RATE_LIMIT_GENERAL', '200/minute'))
+@maybe_limit(os.getenv('RATE_LIMIT_GENERAL', '200/minute'))
 def health():
     """Vérifier la santé du serveur"""
     return db_response(True, data={
@@ -227,10 +518,13 @@ def server_error(e):
 
 # ─── DÉMARRAGE ────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
+    secret = os.getenv('SECRET_KEY', 'dev_secret_key_change_in_production')
+    if ENVIRONMENT == 'production' and secret == 'dev_secret_key_change_in_production':
+        raise RuntimeError('SECRET_KEY must be set in production')
     logger.info('Démarrage du serveur API ERP')
     app.run(
-        host='0.0.0.0',
-        port=5000,
+        host=os.getenv('HOST', '0.0.0.0'),
+        port=int(os.getenv('PORT', '5000')),
         debug=DEBUG,
         threaded=True
     )
