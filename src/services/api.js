@@ -122,17 +122,20 @@ export const authAPI = {
         
         const loginData = res.data.data;
 
-        if (loginData && loginData.token) {
-          await SecureStore.setItemAsync('auth_token', String(loginData.token));
+        // Le serveur retourne 'access_token', on accepte aussi 'token' pour compatibilité
+        const jwtToken = loginData?.access_token || loginData?.token;
+
+        if (loginData && jwtToken) {
+          await SecureStore.setItemAsync('auth_token', String(jwtToken));
           await SecureStore.setItemAsync('user_data', JSON.stringify(loginData.user));
           logger.info('Connexion réussie', { user: username });
           
-          // Lancer la synchronisation en arrière-plan
+          // Lancer la synchronisation en arrière-plan (token déjà stocké)
           syncManager.syncAllData().catch((err) => {
             logger.warn('Erreur sync au login', err);
           });
           
-          return loginData;
+          return { ...loginData, token: jwtToken }; // normaliser pour le reste du code
         } else {
           throw new AppError('Token manquant de la réponse', 'NO_TOKEN');
         }

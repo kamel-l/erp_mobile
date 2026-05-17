@@ -56,15 +56,8 @@ export default function ProfileScreen({ navigation, onLogout }) {
       label: 'Synchroniser',
       color: '#E3F2FD',
       textColor: '#0D47A1',
-      onPress: async () => {
-        try {
-          Alert.alert('Sync', 'Synchronisation en cours...');
-          await syncManager.syncAllData();
-          Alert.alert('Succès', 'Données synchronisées avec succès.');
-        } catch (error) {
-          Alert.alert('Erreur', 'Échec de la synchronisation : ' + error.message);
-        }
-      },
+      onPress: () => navigation.navigate('Sync')
+
     },
     {
       icon: '🔔',

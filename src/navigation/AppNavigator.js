@@ -186,9 +186,15 @@ function MainTabs({ navigation }) {
         component={SyncScreen}
         options={{
           title: 'Synchronisation',
-          tabBarIcon: ({ focused }) => (
-            <TabIcon emoji="🔄" label="Sync" focused={focused} />
-          ),
+          tabBarButton: () => null,
+          headerLeft: () => {
+            const nav = useNavigation();
+            return (
+              <TouchableOpacity onPress={() => nav.goBack()} style={{ paddingLeft: 16 }}>
+                <Text style={{ fontSize: 24, color: '#fff', fontWeight: 'bold' }}>←</Text>
+              </TouchableOpacity>
+            );
+          }
         }}
       />
     </Tab.Navigator>
