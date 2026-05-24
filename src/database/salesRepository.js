@@ -98,7 +98,7 @@ export const saveSalesOffline = (sales) =>
           sale.client_id || null,
           sale.client_name || '',
           sale.total,
-          sale.status || 'completed',
+          sale.status === 'completed' ? 'paid' : (sale.status || 'paid'),
           sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
           1,
           sale.id,
@@ -147,7 +147,7 @@ export const upsertSalesOffline = (sales) =>
             sale.client_id || null,
             sale.client_name || '',
             sale.total,
-            sale.status || 'completed',
+            sale.status === 'completed' ? 'paid' : (sale.status || 'paid'),
             sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
             sale.id,
             sale.created_at || sale.sale_date || new Date().toISOString(),
@@ -180,7 +180,7 @@ export const upsertSalesOffline = (sales) =>
             sale.client_id || null,
             sale.client_name || '',
             sale.total,
-            sale.status || 'completed',
+            sale.status === 'completed' ? 'paid' : (sale.status || 'paid'),
             sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
             1,
             sale.id,
@@ -217,6 +217,7 @@ export const upsertSalesOffline = (sales) =>
 export const getLocalSales = async () => {
   await dbReady;
   try {
+    await db.runAsync("UPDATE sales SET status = 'paid' WHERE status = 'completed'");
     const rows = await db.getAllAsync(`
       SELECT 
         s.*, 

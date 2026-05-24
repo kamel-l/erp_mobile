@@ -2,7 +2,7 @@
 import React, { useState, useCallback } from 'react';
 import {
     View, Text, StyleSheet, RefreshControl,
-    TouchableOpacity, FlatList,
+    TouchableOpacity, FlatList, ScrollView,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS, formatDA } from '../services/theme';
@@ -22,6 +22,7 @@ const AVATAR_COLORS = [
 
 export default function InvoicesScreen({ navigation }) {
     const [search, setSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
     const [refreshing, setRefreshing] = useState(false);
     const [sales, setSales] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' ou 'grid'
@@ -45,10 +46,12 @@ export default function InvoicesScreen({ navigation }) {
     };
 
 
-    const filtered = sales.filter(s =>
-        (s.invoice && s.invoice.toLowerCase().includes(search.toLowerCase())) ||
-        (s.client_name && s.client_name.toLowerCase().includes(search.toLowerCase()))
-    );
+    const filtered = sales.filter(s => {
+        const matchesSearch = (s.invoice && s.invoice.toLowerCase().includes(search.toLowerCase())) ||
+                              (s.client_name && s.client_name.toLowerCase().includes(search.toLowerCase()));
+        const matchesStatus = statusFilter === 'all' || s.status === statusFilter;
+        return matchesSearch && matchesStatus;
+    });
 
     const renderListItem = ({ item: sale, index }) => {
         const av = AVATAR_COLORS[index % AVATAR_COLORS.length];
@@ -114,6 +117,23 @@ export default function InvoicesScreen({ navigation }) {
     const HeaderComponent = () => (
         <View style={styles.content}>
             <SearchBar value={search} onChangeText={setSearch} placeholder="Chercher une facture ou un client..." />
+            
+            <View style={styles.filterRow}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {['all', 'paid', 'pending', 'returned'].map(status => (
+                        <TouchableOpacity
+                            key={status}
+                            style={[styles.filterChip, statusFilter === status && styles.filterChipActive]}
+                            onPress={() => setStatusFilter(status)}
+                        >
+                            <Text style={[styles.filterChipText, statusFilter === status && styles.filterChipTextActive]}>
+                                {status === 'all' ? 'Toutes' : status === 'paid' ? 'Payées' : status === 'pending' ? 'En attente' : 'Retours'}
+                            </Text>
+                        </TouchableOpacity>
+                    ))}
+                </ScrollView>
+            </View>
+
             <View style={styles.sectionHeader}>
                 <SectionTitle>Toutes les factures</SectionTitle>
                 <TouchableOpacity style={styles.viewToggle} onPress={() => setViewMode(viewMode === 'list' ? 'grid' : 'list')}>
@@ -143,6 +163,13 @@ export default function InvoicesScreen({ navigation }) {
 
 const styles = StyleSheet.create({
     content: { paddingHorizontal: 16, paddingTop: 10 },
+    
+    filterRow: { flexDirection: 'row', marginBottom: 16 },
+    filterChip: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: '#E0E0E0', marginRight: 8 },
+    filterChipActive: { backgroundColor: COLORS.primary },
+    filterChipText: { fontSize: 13, color: COLORS.text, fontWeight: '500' },
+    filterChipTextActive: { color: '#FFF' },
+
     sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, marginTop: 4 },
     viewToggle: { backgroundColor: COLORS.primaryLight, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 1 },
     viewToggleText: { color: COLORS.primaryDark, fontWeight: '600', fontSize: 13, letterSpacing: 0.3 },
