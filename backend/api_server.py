@@ -30,6 +30,74 @@ def get_db():
     return conn
 
 
+def ensure_sync_tables(db):
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS sync_operations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_id TEXT UNIQUE NOT NULL,
+            type TEXT,
+            created_at TEXT
+        )
+    """)
+    db.commit()
+
+
+def ensure_soft_delete_columns(db):
+    for table in ('products', 'clients', 'sales'):
+        cols = [r['name'] for r in db.execute(f"PRAGMA table_info({table})").fetchall()]
+        if 'deleted_at' not in cols:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN deleted_at TEXT")
+    db.commit()
+
+
+def has_column(db, table, column):
+    cols = [r['name'] for r in db.execute(f"PRAGMA table_info({table})").fetchall()]
+    return column in cols
+
+
+def ensure_updated_at_columns(db):
+    # Ajoute updated_at si absent
+    for table in ('products', 'clients', 'sales'):
+        cols = [r['name'] for r in db.execute(f"PRAGMA table_info({table})").fetchall()]
+        if 'updated_at' not in cols:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN updated_at TEXT")
+
+    # Initialise updated_at pour les lignes existantes
+    db.execute(
+        "UPDATE products SET updated_at = COALESCE(updated_at, created_at, ?) WHERE updated_at IS NULL",
+        (datetime.now().isoformat(),)
+    )
+    db.execute(
+        "UPDATE clients SET updated_at = COALESCE(updated_at, created_at, ?) WHERE updated_at IS NULL",
+        (datetime.now().isoformat(),)
+    )
+    db.execute(
+        "UPDATE sales SET updated_at = COALESCE(updated_at, created_at, sale_date, ?) WHERE updated_at IS NULL",
+        (datetime.now().isoformat(),)
+    )
+    db.commit()
+
+
+def is_duplicate_operation(db, operation_id, op_type='unknown'):
+    if not operation_id:
+        return False
+
+    ensure_sync_tables(db)
+    existing = db.execute(
+        "SELECT id FROM sync_operations WHERE operation_id = ?",
+        (operation_id,)
+    ).fetchone()
+    if existing:
+        return True
+
+    db.execute(
+        "INSERT INTO sync_operations (operation_id, type, created_at) VALUES (?, ?, ?)",
+        (operation_id, op_type, datetime.now().isoformat())
+    )
+    db.commit()
+    return False
+
+
 def verify_token(token):
     return TOKENS.get(token)
 
@@ -171,24 +239,84 @@ def sales_week():
 @require_auth
 def get_sales():
     db = get_db()
+    ensure_soft_delete_columns(db)
     limit = request.args.get('limit', 20, type=int)
     rows = db.execute("""
         SELECT s.*, c.name as client_name
         FROM sales s LEFT JOIN clients c ON s.client_id = c.id
+        WHERE s.deleted_at IS NULL
         ORDER BY sale_date DESC LIMIT ?
     """, (limit,)).fetchall()
     db.close()
     return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
+@app.route('/api/sales', methods=['POST'])
+@require_auth
+def create_sale():
+    payload = request.json or {}
+    sale = payload.get('sale') or {}
+    items = payload.get('items') or []
+    operation_id = payload.get('operation_id')
+
+    db = get_db()
+    ensure_updated_at_columns(db)
+    try:
+        if is_duplicate_operation(db, operation_id, 'sale'):
+            return jsonify({'success': True, 'data': {'duplicate': True, 'operation_id': operation_id}})
+
+        sale_date = sale.get('sale_date') or sale.get('date') or datetime.now().isoformat()
+        invoice = sale.get('invoice') or sale.get('invoice_number') or f"MOB-{int(datetime.now().timestamp())}"
+        status = sale.get('status') or 'paid'
+        client_id = sale.get('client_id')
+        total = float(sale.get('total') or 0)
+
+        db.execute(
+            """
+            INSERT INTO sales (invoice, client_id, total, status, sale_date, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (invoice, client_id, total, status, sale_date, datetime.now().isoformat(), datetime.now().isoformat())
+        )
+        sale_id = db.execute("SELECT last_insert_rowid() AS id").fetchone()['id']
+
+        for item in items:
+            product_id = item.get('product_id')
+            qty = int(item.get('quantity') or 0)
+            unit_price = float(item.get('unit_price') or 0)
+            item_total = float(item.get('total') or (qty * unit_price))
+
+            db.execute(
+                """
+                INSERT INTO sale_items (sale_id, product_id, quantity, unit_price, total)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (sale_id, product_id, qty, unit_price, item_total)
+            )
+            if product_id:
+                db.execute(
+                    "UPDATE products SET stock_quantity = COALESCE(stock_quantity, 0) - ? WHERE id = ?",
+                    (qty, product_id)
+                )
+
+        db.commit()
+        return jsonify({'success': True, 'data': {'id': sale_id, 'invoice': invoice}})
+    except Exception as e:
+        db.rollback()
+        return jsonify({'success': False, 'error': f'Erreur création vente: {e}'}), 400
+    finally:
+        db.close()
+
+
 @app.route('/api/sales/<int:sale_id>')
 @require_auth
 def get_sale(sale_id):
     db = get_db()
+    ensure_soft_delete_columns(db)
     sale = db.execute("""
         SELECT s.*, c.name as client_name, c.phone as client_phone
         FROM sales s LEFT JOIN clients c ON s.client_id = c.id
-        WHERE s.id = ?
+        WHERE s.id = ? AND s.deleted_at IS NULL
     """, (sale_id,)).fetchone()
     
     if not sale:
@@ -207,16 +335,38 @@ def get_sale(sale_id):
     return jsonify({'success': True, 'data': result})
 
 
+@app.route('/api/sales/<int:sale_id>', methods=['DELETE'])
+@require_auth
+def soft_delete_sale(sale_id):
+    db = get_db()
+    ensure_soft_delete_columns(db)
+    ensure_updated_at_columns(db)
+    try:
+        now = datetime.now().isoformat()
+        db.execute(
+            "UPDATE sales SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            (now, now, sale_id)
+        )
+        db.commit()
+        return jsonify({'success': True, 'data': {'id': sale_id, 'deleted_at': now}})
+    except Exception as e:
+        db.rollback()
+        return jsonify({'success': False, 'error': f'Erreur suppression vente: {e}'}), 400
+    finally:
+        db.close()
+
+
 # ─── PRODUCTS / STOCK ─────────────────────────────────────────────────────────
 @app.route('/api/products')
 @require_auth
 def get_products():
     db = get_db()
+    ensure_soft_delete_columns(db)
     search = request.args.get('search', '')
     rows = db.execute("""
         SELECT p.*, c.name as category_name
         FROM products p LEFT JOIN categories c ON p.category_id = c.id
-        WHERE p.name LIKE ?
+        WHERE p.name LIKE ? AND p.deleted_at IS NULL
         ORDER BY p.name
     """, (f'%{search}%',)).fetchall()
     db.close()
@@ -227,7 +377,8 @@ def get_products():
 @require_auth
 def get_by_barcode(barcode):
     db = get_db()
-    row = db.execute("SELECT * FROM products WHERE barcode = ?", (barcode,)).fetchone()
+    ensure_soft_delete_columns(db)
+    row = db.execute("SELECT * FROM products WHERE barcode = ? AND deleted_at IS NULL", (barcode,)).fetchone()
     db.close()
     if not row:
         return jsonify({'success': False, 'error': 'Produit introuvable'}), 404
@@ -238,11 +389,33 @@ def get_by_barcode(barcode):
 @require_auth
 def low_stock():
     db = get_db()
+    ensure_soft_delete_columns(db)
     rows = db.execute("""
-        SELECT * FROM products WHERE stock_quantity <= min_stock ORDER BY stock_quantity
+        SELECT * FROM products WHERE stock_quantity <= min_stock AND deleted_at IS NULL ORDER BY stock_quantity
     """).fetchall()
     db.close()
     return jsonify({'success': True, 'data': [dict(r) for r in rows]})
+
+
+@app.route('/api/products/<int:product_id>', methods=['DELETE'])
+@require_auth
+def soft_delete_product(product_id):
+    db = get_db()
+    ensure_soft_delete_columns(db)
+    ensure_updated_at_columns(db)
+    try:
+        now = datetime.now().isoformat()
+        db.execute(
+            "UPDATE products SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            (now, now, product_id)
+        )
+        db.commit()
+        return jsonify({'success': True, 'data': {'id': product_id, 'deleted_at': now}})
+    except Exception as e:
+        db.rollback()
+        return jsonify({'success': False, 'error': f'Erreur suppression produit: {e}'}), 400
+    finally:
+        db.close()
 
 
 @app.route('/api/stock/movements')
@@ -258,6 +431,38 @@ def stock_movements():
     return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
+@app.route('/api/stock/update', methods=['POST'])
+@require_auth
+def update_stock():
+    data = request.json or {}
+    operation_id = data.get('operation_id')
+    product_id = data.get('product_id')
+    quantity = int(data.get('quantity') or 0)
+    movement_type = (data.get('type') or 'in').lower()
+
+    if not product_id:
+        return jsonify({'success': False, 'error': 'product_id requis'}), 400
+
+    db = get_db()
+    ensure_updated_at_columns(db)
+    try:
+        if is_duplicate_operation(db, operation_id, 'stock_update'):
+            return jsonify({'success': True, 'data': {'duplicate': True, 'operation_id': operation_id}})
+
+        sign = -1 if movement_type in ('out', 'remove', 'decrease', 'sortie') else 1
+        db.execute(
+            "UPDATE products SET stock_quantity = COALESCE(stock_quantity, 0) + ?, updated_at = ? WHERE id = ?",
+            (sign * quantity, datetime.now().isoformat(), product_id)
+        )
+        db.commit()
+        return jsonify({'success': True, 'data': {'product_id': product_id}})
+    except Exception as e:
+        db.rollback()
+        return jsonify({'success': False, 'error': f'Erreur update stock: {e}'}), 400
+    finally:
+        db.close()
+
+
 # ─── EMPLOYEES ────────────────────────────────────────────────────────────────
 @app.route('/api/employees')
 @require_auth
@@ -270,17 +475,57 @@ def get_employees():
     return jsonify({'success': True, 'data': [dict(r) for r in rows]})
 
 
+@app.route('/api/attendance', methods=['POST'])
+@require_auth
+def mark_attendance():
+    data = request.json or {}
+    operation_id = data.get('operation_id')
+    employee_id = data.get('employee_id')
+    status = data.get('status') or 'present'
+
+    db = get_db()
+    try:
+        if is_duplicate_operation(db, operation_id, 'attendance'):
+            return jsonify({'success': True, 'data': {'duplicate': True, 'operation_id': operation_id}})
+        # Phase 1: endpoint d'acceptation pour ne plus bloquer la file offline.
+        return jsonify({'success': True, 'data': {'employee_id': employee_id, 'status': status}})
+    finally:
+        db.close()
+
+
 # ─── CLIENTS ──────────────────────────────────────────────────────────────────
 @app.route('/api/clients')
 @require_auth
 def get_clients():
     db = get_db()
+    ensure_soft_delete_columns(db)
     search = request.args.get('search', '')
     rows = db.execute(
-        "SELECT * FROM clients WHERE name LIKE ? ORDER BY name", (f'%{search}%',)
+        "SELECT * FROM clients WHERE name LIKE ? AND deleted_at IS NULL ORDER BY name", (f'%{search}%',)
     ).fetchall()
     db.close()
     return jsonify({'success': True, 'data': [dict(r) for r in rows]})
+
+
+@app.route('/api/clients/<int:client_id>', methods=['DELETE'])
+@require_auth
+def soft_delete_client(client_id):
+    db = get_db()
+    ensure_soft_delete_columns(db)
+    ensure_updated_at_columns(db)
+    try:
+        now = datetime.now().isoformat()
+        db.execute(
+            "UPDATE clients SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            (now, now, client_id)
+        )
+        db.commit()
+        return jsonify({'success': True, 'data': {'id': client_id, 'deleted_at': now}})
+    except Exception as e:
+        db.rollback()
+        return jsonify({'success': False, 'error': f'Erreur suppression client: {e}'}), 400
+    finally:
+        db.close()
 
 
 # ─── REPORTS ──────────────────────────────────────────────────────────────────
@@ -355,22 +600,41 @@ def sync():
     since = request.args.get('since', None)
     
     db = get_db()
+    ensure_soft_delete_columns(db)
+    ensure_updated_at_columns(db)
+    products_has_updated = has_column(db, 'products', 'updated_at')
+    products_has_created = has_column(db, 'products', 'created_at')
+    clients_has_updated = has_column(db, 'clients', 'updated_at')
+    clients_has_created = has_column(db, 'clients', 'created_at')
+    sales_has_updated = has_column(db, 'sales', 'updated_at')
+    sales_has_created = has_column(db, 'sales', 'created_at')
     result = {
         'success': True,
         'data': {
             'produits': [],
             'clients': [],
-            'ventes': []
+            'ventes': [],
+            'deleted': {
+                'products': [],
+                'clients': [],
+                'sales': []
+            }
         },
         'timestamp': datetime.now().isoformat()
     }
     
     # Récupérer les produits
     try:
-        products_query = "SELECT * FROM products"
+        products_query = "SELECT * FROM products WHERE deleted_at IS NULL"
         if since:
-            products_query += f" WHERE updated_at > ? OR created_at > ?"
-            products = db.execute(products_query, (since, since)).fetchall()
+            if products_has_updated:
+                products_query += " AND (updated_at > ? OR created_at > ?)"
+                products = db.execute(products_query, (since, since)).fetchall()
+            elif products_has_created:
+                products_query += " AND (created_at > ?)"
+                products = db.execute(products_query, (since,)).fetchall()
+            else:
+                products = db.execute(products_query).fetchall()
         else:
             products = db.execute(products_query).fetchall()
         result['data']['produits'] = [dict(p) for p in products]
@@ -380,10 +644,16 @@ def sync():
     
     # Récupérer les clients
     try:
-        clients_query = "SELECT * FROM clients"
+        clients_query = "SELECT * FROM clients WHERE deleted_at IS NULL"
         if since:
-            clients_query += f" WHERE updated_at > ? OR created_at > ?"
-            clients = db.execute(clients_query, (since, since)).fetchall()
+            if clients_has_updated:
+                clients_query += " AND (updated_at > ? OR created_at > ?)"
+                clients = db.execute(clients_query, (since, since)).fetchall()
+            elif clients_has_created:
+                clients_query += " AND (created_at > ?)"
+                clients = db.execute(clients_query, (since,)).fetchall()
+            else:
+                clients = db.execute(clients_query).fetchall()
         else:
             clients = db.execute(clients_query).fetchall()
         result['data']['clients'] = [dict(c) for c in clients]
@@ -397,10 +667,17 @@ def sync():
             SELECT s.*, c.name as client_name 
             FROM sales s 
             LEFT JOIN clients c ON s.client_id = c.id
+            WHERE s.deleted_at IS NULL
         """
         if since:
-            sales_query += f" WHERE s.updated_at > ? OR s.created_at > ?"
-            sales = db.execute(sales_query, (since, since)).fetchall()
+            if sales_has_updated:
+                sales_query += " AND (s.updated_at > ? OR s.created_at > ?)"
+                sales = db.execute(sales_query, (since, since)).fetchall()
+            elif sales_has_created:
+                sales_query += " AND (s.created_at > ?)"
+                sales = db.execute(sales_query, (since,)).fetchall()
+            else:
+                sales = db.execute(sales_query).fetchall()
         else:
             sales = db.execute(sales_query).fetchall()
         
@@ -421,6 +698,28 @@ def sync():
     except Exception as e:
         result['data']['ventes'] = []
         print(f"Erreur lecture ventes: {e}")
+
+    # Récupérer les suppressions logiques (soft delete)
+    if since:
+        try:
+            deleted_products = db.execute(
+                "SELECT id, deleted_at FROM products WHERE deleted_at IS NOT NULL AND deleted_at > ?",
+                (since,)
+            ).fetchall()
+            deleted_clients = db.execute(
+                "SELECT id, deleted_at FROM clients WHERE deleted_at IS NOT NULL AND deleted_at > ?",
+                (since,)
+            ).fetchall()
+            deleted_sales = db.execute(
+                "SELECT id, deleted_at FROM sales WHERE deleted_at IS NOT NULL AND deleted_at > ?",
+                (since,)
+            ).fetchall()
+
+            result['data']['deleted']['products'] = [dict(r) for r in deleted_products]
+            result['data']['deleted']['clients'] = [dict(r) for r in deleted_clients]
+            result['data']['deleted']['sales'] = [dict(r) for r in deleted_sales]
+        except Exception as e:
+            print(f"Erreur lecture suppressions soft delete: {e}")
     
     db.close()
     return jsonify(result)

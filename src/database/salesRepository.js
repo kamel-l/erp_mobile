@@ -1,4 +1,4 @@
-import { db, withDbTransaction } from './database';
+import { db, withDbTransaction, dbReady } from './database';
 
 export const addToPendingSync = (type, recordId, data) =>
   withDbTransaction(async () => {
@@ -15,6 +15,7 @@ export const addToPendingSync = (type, recordId, data) =>
 
 export const saveSaleLocally = (sale, items, isReturn = false) =>
   withDbTransaction(async () => {
+    await dbReady;
     try {
       const result = await db.runAsync(
         `INSERT INTO sales (invoice, client_id, client_name, total, status, date, synced, created_at)
@@ -65,7 +66,13 @@ export const saveSaleLocally = (sale, items, isReturn = false) =>
       await db.runAsync(
         `INSERT INTO pending_actions (type, data, created_at)
          VALUES (?, ?, ?)`,
-        'sale', JSON.stringify({ recordId: saleId, data: { sale, items } }), new Date().toISOString()
+        'sale',
+        JSON.stringify({
+          recordId: saleId,
+          operation_id: `op_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`,
+          data: { sale, items }
+        }),
+        new Date().toISOString()
       );
 
       return saleId;
@@ -77,6 +84,7 @@ export const saveSaleLocally = (sale, items, isReturn = false) =>
 
 export const saveSalesOffline = (sales) =>
   withDbTransaction(async () => {
+    await dbReady;
     await db.execAsync('BEGIN');
     try {
       await db.runAsync('DELETE FROM sale_items');
@@ -121,7 +129,93 @@ export const saveSalesOffline = (sales) =>
     }
   });
 
+export const upsertSalesOffline = (sales) =>
+  withDbTransaction(async () => {
+    await dbReady;
+    await db.execAsync('BEGIN');
+    try {
+      for (const sale of sales || []) {
+        const saleId = sale.id;
+        const existing = await db.getFirstAsync('SELECT id FROM sales WHERE server_id = ? OR id = ?', saleId, saleId);
+
+        if (existing?.id) {
+          await db.runAsync(
+            `UPDATE sales
+             SET invoice = ?, client_id = ?, client_name = ?, total = ?, status = ?, date = ?, synced = 1, server_id = ?, created_at = ?
+             WHERE id = ?`,
+            sale.invoice || sale.invoice_number || `INV-${sale.id}`,
+            sale.client_id || null,
+            sale.client_name || '',
+            sale.total,
+            sale.status || 'completed',
+            sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
+            sale.id,
+            sale.created_at || sale.sale_date || new Date().toISOString(),
+            existing.id
+          );
+          await db.runAsync('DELETE FROM sale_items WHERE sale_id = ?', existing.id);
+
+          if (sale.items && Array.isArray(sale.items)) {
+            for (const item of sale.items) {
+              await db.runAsync(
+                `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                existing.id,
+                item.product_id || null,
+                item.barcode || null,
+                item.name || item.product_name || '',
+                item.quantity,
+                item.unit_price,
+                item.total,
+                1
+              );
+            }
+          }
+        } else {
+          await db.runAsync(
+            `INSERT INTO sales (id, invoice, client_id, client_name, total, status, date, synced, server_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            sale.id,
+            sale.invoice || sale.invoice_number || `INV-${sale.id}`,
+            sale.client_id || null,
+            sale.client_name || '',
+            sale.total,
+            sale.status || 'completed',
+            sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
+            1,
+            sale.id,
+            sale.created_at || sale.sale_date || new Date().toISOString()
+          );
+
+          if (sale.items && Array.isArray(sale.items)) {
+            for (const item of sale.items) {
+              await db.runAsync(
+                `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                sale.id,
+                item.product_id || null,
+                item.barcode || null,
+                item.name || item.product_name || '',
+                item.quantity,
+                item.unit_price,
+                item.total,
+                1
+              );
+            }
+          }
+        }
+      }
+      await db.execAsync('COMMIT');
+      return true;
+    } catch (error) {
+      await db.execAsync('ROLLBACK');
+      console.error('Erreur upsertSalesOffline:', error);
+      return false;
+    }
+  });
+
 export const getLocalSales = async () => {
+  await dbReady;
   try {
     const rows = await db.getAllAsync(`
       SELECT 

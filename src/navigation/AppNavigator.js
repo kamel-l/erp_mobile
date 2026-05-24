@@ -10,8 +10,9 @@ import { useAuth } from '../context/AuthContext';
 import LoginScreen from '../screens/LoginScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import SalesScreen from '../screens/SalesScreen';
+import PurchasesScreen from '../screens/PurchasesScreen';
 import StockScreen from '../screens/StockScreen';
-import ClientsScreen from '../screens/ClientsScreen_Optimized';
+import ClientsScreen from '../screens/ClientsScreen';
 import ReportsScreen from '../screens/ReportsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
@@ -125,6 +126,11 @@ function MainTabs({ navigation }) {
         name="Ventes"
         component={SalesScreen}
         options={{ title: 'Ventes & Facturation', tabBarIcon: ({ focused }) => <TabIcon emoji="💰" label="Ventes" focused={focused} /> }}
+      />
+      <Tab.Screen
+        name="Achats"
+        component={PurchasesScreen}
+        options={{ title: 'Achats & Commandes', tabBarIcon: ({ focused }) => <TabIcon emoji="🛒" label="Achats" focused={focused} /> }}
       />
       <Tab.Screen
         name="Stock"

@@ -15,6 +15,7 @@ import {
   ProgressBar, SearchBar,
 } from '../components/UIComponents';
 import { getLocalProducts, saveProductsLocally, getProductByBarcode, updateProduct, deleteProduct, addProductWithImage } from '../database/database';
+import { stockAPI } from '../services/api';
 
 const DEFAULT_STOCK = [
   { id: 1, name: 'Ordinateur HP ProBook', barcode: 'HP001', category: 'Informatique', price: 75000, stock_quantity: 2, min_stock: 2 },
@@ -183,7 +184,11 @@ export default function StockScreen() {
         text: 'Supprimer', style: 'destructive', onPress: async () => {
           setLoading(true);
           try {
-            await deleteProduct(id);
+            try {
+              await stockAPI.deleteProduct(id);
+            } catch {
+              await deleteProduct(id);
+            }
             await loadProducts();
             Alert.alert('Succès', 'Produit supprimé avec succès');
           } catch (e) {

@@ -1,34 +1,37 @@
-﻿// src/database/database.js
+// src/database/database.js
 import * as SQLite from 'expo-sqlite';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logger } from '../services/logger';
 
-const ALLOW_INSECURE_DEFAULT_ADMIN =
-  typeof __DEV__ !== 'undefined' ? __DEV__ : false;
 
-
-// Ouvrir (ou crÃ©er) la base de donnÃ©es â€” instance unique partagÃ©e
+// Ouvrir (ou créer) la base de données — instance unique partagée
 export const db = SQLite.openDatabaseSync('erp.db');
 
-// â”€â”€ Mutex pour sÃ©rialiser les transactions SQLite â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// SQLite n'accepte qu'une seule transaction Ã  la fois sur la mÃªme connexion.
-// Ce mutex garantit que les Ã©critures concurrentes sont mises en file d'attente.
+// ── Mutex pour sérialiser les transactions SQLite ──────────────────────────
+// SQLite n'accepte qu'une seule transaction à la fois sur la même connexion.
+// Ce mutex garantit que les écritures concurrentes sont mises en file d'attente.
 let _dbLock = Promise.resolve();
 export const withDbTransaction = (fn) => {
   const result = _dbLock.then(() => fn());
-  // La prochaine opÃ©ration attend que celle-ci soit terminÃ©e (succÃ¨s ou erreur)
-  _dbLock = result.catch(() => {});
+  // La prochaine opération attend que celle-ci soit terminée (succès ou erreur)
+  _dbLock = result.catch(() => { });
   return result;
 };
 
+// ── Guard "base prête" ─────────────────────────────────────────────────────
+// Toutes les fonctions de lecture/écriture attendent ce resolve avant d'agir.
+let _dbReadyResolve;
+export const dbReady = new Promise(resolve => { _dbReadyResolve = resolve; });
+
 // ========== INITIALISATION DES TABLES ==========
-export const initDatabase = () => 
+export const initDatabase = () =>
   withDbTransaction(async () => {
     try {
       // Table produits
       await db.execAsync(`
         CREATE TABLE IF NOT EXISTS products (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          server_id INTEGER,
           name TEXT NOT NULL,
           barcode TEXT UNIQUE,
           category TEXT,
@@ -44,6 +47,7 @@ export const initDatabase = () =>
       await db.execAsync(`
         CREATE TABLE IF NOT EXISTS clients (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
+          server_id INTEGER,
           name TEXT NOT NULL,
           email TEXT,
           phone TEXT,
@@ -68,23 +72,6 @@ export const initDatabase = () =>
           FOREIGN KEY (client_id) REFERENCES clients(id)
         );
       `);
-      // Migration : ajouter les colonnes manquantes Ã  la table sales
-      const tableInfo = await db.getAllAsync("PRAGMA table_info(sales)");
-      const existingColumns = tableInfo.map(col => col.name);
-
-      const columnsToAdd = {
-        tva_applied: "INTEGER DEFAULT 1",
-        payment_method: "TEXT",
-        synced: "INTEGER DEFAULT 0",
-        server_id: "INTEGER"
-      };
-
-      for (const [col, type] of Object.entries(columnsToAdd)) {
-        if (!existingColumns.includes(col)) {
-          await db.execAsync(`ALTER TABLE sales ADD COLUMN ${col} ${type}`);
-          logger.info(`Column ${col} added to sales`);
-        }
-      }
 
       // Table items de vente
       await db.execAsync(`
@@ -103,7 +90,7 @@ export const initDatabase = () =>
         );
       `);
 
-      // Table employÃ©s
+      // Table employés
       await db.execAsync(`
         CREATE TABLE IF NOT EXISTS employees (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,7 +105,7 @@ export const initDatabase = () =>
         );
       `);
 
-      // Table statistiques dashboard (cachÃ©e, pour cache)
+      // Table statistiques dashboard (cachée, pour cache)
       await db.execAsync(`
         CREATE TABLE IF NOT EXISTS dashboard_stats (
           id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -161,7 +148,9 @@ export const initDatabase = () =>
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           type TEXT,
           data TEXT,
-          created_at TEXT
+          created_at TEXT,
+          retry_count INTEGER DEFAULT 0,
+          last_error TEXT
         );
       `);
 
@@ -172,12 +161,132 @@ export const initDatabase = () =>
           value TEXT
         );
       `);
-      
-      // Initialiser les utilisateurs et les migrations
+
+      // Table achats fournisseurs
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS purchases (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          reference TEXT UNIQUE,
+          supplier_name TEXT,
+          total REAL DEFAULT 0,
+          status TEXT DEFAULT 'pending',
+          date TEXT,
+          notes TEXT,
+          synced INTEGER DEFAULT 0,
+          created_at TEXT
+        );
+      `);
+
+      // Table lignes d'achat
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS purchase_items (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          purchase_id INTEGER NOT NULL,
+          product_id INTEGER,
+          barcode TEXT,
+          name TEXT,
+          quantity INTEGER DEFAULT 0,
+          unit_price REAL DEFAULT 0,
+          total REAL DEFAULT 0,
+          FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE CASCADE,
+          FOREIGN KEY (product_id) REFERENCES products(id)
+        );
+      `);
+
+      // Migration purchases : colonnes possibles
+      const purchasesInfo = await db.getAllAsync('PRAGMA table_info(purchases)');
+      const purchasesCols = purchasesInfo.map(c => c.name);
+      const purchasesColumnsToAdd = {
+        reference:     'TEXT',
+        supplier_name: 'TEXT',
+        total:         'REAL DEFAULT 0',
+        status:        "TEXT DEFAULT 'pending'",
+        date:          'TEXT',
+        notes:         'TEXT',
+        synced:        'INTEGER DEFAULT 0',
+        created_at:    'TEXT',
+      };
+      for (const [col, type] of Object.entries(purchasesColumnsToAdd)) {
+        if (!purchasesCols.includes(col)) {
+          await db.execAsync(`ALTER TABLE purchases ADD COLUMN ${col} ${type}`);
+          logger.info(`✅ purchases.${col} ajouté`);
+        }
+      }
+
+      // Initialiser les utilisateurs et les migrations image
       await _initUsersTableInternal();
       await _migrateAddImageColumnInternal();
 
+      // ── Migrations complètes (après tous les CREATE TABLE) ────────────────
+      // products : colonnes de sync
+      const productsInfo = await db.getAllAsync('PRAGMA table_info(products)');
+      const productsCols = productsInfo.map(c => c.name);
+      if (!productsCols.includes('server_id')) {
+        await db.execAsync('ALTER TABLE products ADD COLUMN server_id INTEGER');
+      }
+
+      // clients : colonnes de sync
+      const clientsInfo = await db.getAllAsync('PRAGMA table_info(clients)');
+      const clientsCols = clientsInfo.map(c => c.name);
+      if (!clientsCols.includes('server_id')) {
+        await db.execAsync('ALTER TABLE clients ADD COLUMN server_id INTEGER');
+      }
+
+      // sales : toutes les colonnes possibles
+      const salesInfo = await db.getAllAsync('PRAGMA table_info(sales)');
+      const salesCols = salesInfo.map(c => c.name);
+      const salesColumnsToAdd = {
+        invoice:        'TEXT',
+        client_id:      'INTEGER',
+        client_name:    'TEXT',
+        total:          'REAL DEFAULT 0',
+        status:         "TEXT DEFAULT 'pending'",
+        date:           'TEXT',
+        tva_applied:    'INTEGER DEFAULT 1',
+        payment_method: 'TEXT',
+        synced:         'INTEGER DEFAULT 0',
+        server_id:      'INTEGER',
+        created_at:     'TEXT',
+      };
+      for (const [col, type] of Object.entries(salesColumnsToAdd)) {
+        if (!salesCols.includes(col)) {
+          await db.execAsync(`ALTER TABLE sales ADD COLUMN ${col} ${type}`);
+          logger.info(`✅ sales.${col} ajouté`);
+        }
+      }
+
+      // sale_items : toutes les colonnes possibles
+      const itemsInfo = await db.getAllAsync('PRAGMA table_info(sale_items)');
+      const itemsCols = itemsInfo.map(c => c.name);
+      const itemColumnsToAdd = {
+        sale_id:    'INTEGER',
+        product_id: 'INTEGER',
+        barcode:    'TEXT',
+        name:       'TEXT',
+        quantity:   'INTEGER DEFAULT 0',
+        unit_price: 'REAL DEFAULT 0',
+        total:      'REAL DEFAULT 0',
+        synced:     'INTEGER DEFAULT 0',
+      };
+      for (const [col, type] of Object.entries(itemColumnsToAdd)) {
+        if (!itemsCols.includes(col)) {
+          await db.execAsync(`ALTER TABLE sale_items ADD COLUMN ${col} ${type}`);
+          logger.info(`✅ sale_items.${col} ajouté`);
+        }
+      }
+
+      // pending_actions : colonnes de suivi d'erreur sync
+      const pendingInfo = await db.getAllAsync('PRAGMA table_info(pending_actions)');
+      const pendingCols = pendingInfo.map(c => c.name);
+      if (!pendingCols.includes('retry_count')) {
+        await db.execAsync("ALTER TABLE pending_actions ADD COLUMN retry_count INTEGER DEFAULT 0");
+      }
+      if (!pendingCols.includes('last_error')) {
+        await db.execAsync("ALTER TABLE pending_actions ADD COLUMN last_error TEXT");
+      }
+
       logger.info('SQLite database initialized');
+      _dbReadyResolve(); // ✅ Débloquer toutes les lectures en attente
     } catch (error) {
       logger.error('DB initialization error', error);
     }
@@ -190,11 +299,12 @@ export const saveProductsLocally = (products) =>
     try {
       await db.runAsync('DELETE FROM products');
       for (const p of products) {
-        const price = p.selling_price !== undefined ? p.selling_price : (p.price || 0);
-        const category = p.category_name || p.category || null;
+        const price = p.price !== undefined ? p.price : (p.selling_price !== undefined ? p.selling_price : 0);
+        const category = p.category || p.category_name || null;
         await db.runAsync(
-          `INSERT INTO products (name, barcode, category, price, stock_quantity, min_stock, description, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO products (server_id, name, barcode, category, price, stock_quantity, min_stock, description, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          p.id || p.server_id || null,
           p.name, p.barcode || null, category, price,
           p.stock_quantity || 0, p.min_stock || 0, p.description || null, p.created_at || new Date().toISOString()
         );
@@ -209,6 +319,7 @@ export const saveProductsLocally = (products) =>
   });
 
 export const getLocalProducts = async () => {
+  await dbReady;
   try {
     const result = await db.getAllAsync('SELECT * FROM products');
     return result;
@@ -217,6 +328,45 @@ export const getLocalProducts = async () => {
     return [];
   }
 };
+
+export const upsertProductsLocally = (products) =>
+  withDbTransaction(async () => {
+    await db.execAsync('BEGIN');
+    try {
+      for (const p of products || []) {
+        const serverId = p.id || p.server_id || null;
+        const existing = serverId
+          ? await db.getFirstAsync('SELECT id FROM products WHERE server_id = ?', serverId)
+          : null;
+        const price = p.price !== undefined ? p.price : (p.selling_price !== undefined ? p.selling_price : 0);
+        const category = p.category || p.category_name || null;
+        const createdAt = p.created_at || new Date().toISOString();
+
+        if (existing?.id) {
+          await db.runAsync(
+            `UPDATE products
+             SET name = ?, barcode = ?, category = ?, price = ?, stock_quantity = ?, min_stock = ?, description = ?, created_at = ?
+             WHERE id = ?`,
+            p.name, p.barcode || null, category, price,
+            p.stock_quantity || 0, p.min_stock || 0, p.description || null, createdAt, existing.id
+          );
+        } else {
+          await db.runAsync(
+            `INSERT INTO products (server_id, name, barcode, category, price, stock_quantity, min_stock, description, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            serverId, p.name, p.barcode || null, category, price,
+            p.stock_quantity || 0, p.min_stock || 0, p.description || null, createdAt
+          );
+        }
+      }
+      await db.execAsync('COMMIT');
+      return true;
+    } catch (error) {
+      await db.execAsync('ROLLBACK');
+      logger.error('Erreur upsertProductsLocally', error);
+      return false;
+    }
+  });
 
 export const getProductByBarcode = async (barcode) => {
   try {
@@ -307,7 +457,7 @@ export const deleteProduct = (productId) =>
 
 
 // ========== VENTES ==========
-// Extrait de database.js - fonction saveSaleLocally corrigÃ©e
+// Extrait de database.js - fonction saveSaleLocally corrigée
 
 // ========== CLIENTS ==========
 export const saveClientsLocally = (clients) =>
@@ -317,8 +467,9 @@ export const saveClientsLocally = (clients) =>
       await db.runAsync('DELETE FROM clients');
       for (const c of clients) {
         await db.runAsync(
-          `INSERT INTO clients (name, email, phone, address, created_at)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT INTO clients (server_id, name, email, phone, address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          c.id || c.server_id || null,
           c.name, c.email || null, c.phone || null, c.address || null, c.created_at || new Date().toISOString()
         );
       }
@@ -332,6 +483,7 @@ export const saveClientsLocally = (clients) =>
   });
 
 export const getLocalClients = async () => {
+  await dbReady;
   try {
     return await db.getAllAsync('SELECT * FROM clients');
   } catch (error) {
@@ -339,6 +491,72 @@ export const getLocalClients = async () => {
     return [];
   }
 };
+
+export const upsertClientsLocally = (clients) =>
+  withDbTransaction(async () => {
+    await db.execAsync('BEGIN');
+    try {
+      for (const c of clients || []) {
+        const serverId = c.id || c.server_id || null;
+        const existing = serverId
+          ? await db.getFirstAsync('SELECT id FROM clients WHERE server_id = ?', serverId)
+          : null;
+        const createdAt = c.created_at || new Date().toISOString();
+
+        if (existing?.id) {
+          await db.runAsync(
+            `UPDATE clients
+             SET name = ?, email = ?, phone = ?, address = ?, created_at = ?
+             WHERE id = ?`,
+            c.name, c.email || null, c.phone || null, c.address || null, createdAt, existing.id
+          );
+        } else {
+          await db.runAsync(
+            `INSERT INTO clients (server_id, name, email, phone, address, created_at)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            serverId, c.name, c.email || null, c.phone || null, c.address || null, createdAt
+          );
+        }
+      }
+      await db.execAsync('COMMIT');
+      return true;
+    } catch (error) {
+      await db.execAsync('ROLLBACK');
+      logger.error('Erreur upsertClientsLocally', error);
+      return false;
+    }
+  });
+
+export const applyDeletedEntities = (deleted = {}) =>
+  withDbTransaction(async () => {
+    await db.execAsync('BEGIN');
+    try {
+      const products = deleted.products || [];
+      const clients = deleted.clients || [];
+      const sales = deleted.sales || [];
+
+      for (const p of products) {
+        await db.runAsync('DELETE FROM products WHERE server_id = ? OR id = ?', p.id, p.id);
+      }
+      for (const c of clients) {
+        await db.runAsync('DELETE FROM clients WHERE server_id = ? OR id = ?', c.id, c.id);
+      }
+      for (const s of sales) {
+        const localSale = await db.getFirstAsync('SELECT id FROM sales WHERE server_id = ? OR id = ?', s.id, s.id);
+        if (localSale?.id) {
+          await db.runAsync('DELETE FROM sale_items WHERE sale_id = ?', localSale.id);
+          await db.runAsync('DELETE FROM sales WHERE id = ?', localSale.id);
+        }
+      }
+
+      await db.execAsync('COMMIT');
+      return true;
+    } catch (error) {
+      await db.execAsync('ROLLBACK');
+      logger.error('Erreur applyDeletedEntities', error);
+      return false;
+    }
+  });
 
 // ========== SYNC ==========
 export const setLastSyncTime = () =>
@@ -440,7 +658,7 @@ export const getLowStockOffline = async () => {
   }
 };
 
-// ========== EMPLOYÃ‰S ==========
+// ========== EMPLOYÉS ==========
 export const saveEmployeesOffline = (employees) =>
   withDbTransaction(async () => {
     try {
@@ -483,6 +701,7 @@ export const addPendingAction = (action) =>
   });
 
 export const getPendingActions = async () => {
+  await dbReady;
   try {
     return await db.getAllAsync('SELECT * FROM pending_actions ORDER BY id');
   } catch (error) {
@@ -497,6 +716,22 @@ export const removePendingAction = (actionId) =>
       await db.runAsync('DELETE FROM pending_actions WHERE id = ?', actionId);
     } catch (error) {
       logger.error('Erreur removePendingAction', error);
+    }
+  });
+
+export const markPendingActionError = (actionId, errorMessage) =>
+  withDbTransaction(async () => {
+    try {
+      await db.runAsync(
+        `UPDATE pending_actions
+         SET retry_count = COALESCE(retry_count, 0) + 1,
+             last_error = ?
+         WHERE id = ?`,
+        String(errorMessage || 'Erreur inconnue'),
+        actionId
+      );
+    } catch (error) {
+      logger.error('Erreur markPendingActionError', error);
     }
   });
 
@@ -515,19 +750,16 @@ export const clearAllData = () =>
           await db.execAsync(`DELETE FROM sqlite_sequence WHERE name = '${table}'`);
         }
       }
-    await db.runAsync('DELETE FROM invoice_counter');
-    // RecrÃ©er le compteur de facture (valeur initiale 999)
-    await db.execAsync(`CREATE TABLE IF NOT EXISTS invoice_counter (id INTEGER PRIMARY KEY CHECK (id = 1), last_number INTEGER DEFAULT 999)`);
-    await db.runAsync('INSERT OR IGNORE INTO invoice_counter (id, last_number) VALUES (1, 999)');
-    if (ALLOW_INSECURE_DEFAULT_ADMIN) {
+      await db.runAsync('DELETE FROM invoice_counter');
+      // Recréer le compteur de facture (valeur initiale 999)
+      await db.execAsync(`CREATE TABLE IF NOT EXISTS invoice_counter (id INTEGER PRIMARY KEY CHECK (id = 1), last_number INTEGER DEFAULT 999)`);
+      await db.runAsync('INSERT OR IGNORE INTO invoice_counter (id, last_number) VALUES (1, 999)');
+      // Recréer l'utilisateur admin par défaut
       await db.runAsync(
         `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
         'admin', 'admin123', 'admin', 'Administrateur', new Date().toISOString()
       );
-      logger.info('All SQLite data cleared, default admin recreated (dev mode)');
-    } else {
-      logger.info('All SQLite data cleared');
-    }
+      logger.info('All SQLite data cleared, admin recreated');
     } catch (error) {
       logger.error('Erreur clearAllData', error);
     }
@@ -546,14 +778,13 @@ const _initUsersTableInternal = async () => {
         created_at TEXT
       );
     `);
-    if (ALLOW_INSECURE_DEFAULT_ADMIN) {
-      const admin = await db.getFirstAsync('SELECT * FROM users WHERE username = ?', 'admin');
-      if (!admin) {
-        await db.runAsync(
-          `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
-          'admin', 'admin123', 'admin', 'Administrateur', new Date().toISOString()
-        );
-      }
+    // Créer l'admin par défaut si aucun utilisateur
+    const admin = await db.getFirstAsync('SELECT * FROM users WHERE username = ?', 'admin');
+    if (!admin) {
+      await db.runAsync(
+        `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
+        'admin', 'admin123', 'admin', 'Administrateur', new Date().toISOString()
+      );
     }
   } catch (error) {
     logger.error('Erreur _initUsersTableInternal', error);
@@ -584,7 +815,7 @@ export const addUser = (username, password, role, fullname) =>
   withDbTransaction(async () => {
     try {
       const existing = await getUserByUsername(username);
-      if (existing) throw new Error('Nom d\'utilisateur dÃ©jÃ  existant');
+      if (existing) throw new Error('Nom d\'utilisateur déjà existant');
       await db.runAsync(
         `INSERT INTO users (username, password, role, fullname, created_at) VALUES (?, ?, ?, ?, ?)`,
         username, password, role, fullname, new Date().toISOString()
@@ -630,13 +861,13 @@ export const clearCurrentUser = async () => {
   await AsyncStorage.removeItem('@erp_current_user');
 };
 
-// src/database/database.js (ajouter Ã  la fin du fichier)
+// src/database/database.js (ajouter à la fin du fichier)
 
 /**
- * Importe une vente depuis un fichier .DAT (format paramÃ¨tres URL)
- * - CrÃ©e ou rÃ©cupÃ¨re le client
- * - Pour chaque article : recherche ou crÃ©e le produit, incrÃ©mente le stock
- * - Enregistre la vente avec les items (sans dÃ©crÃ©menter le stock)
+ * Importe une vente depuis un fichier .DAT (format paramètres URL)
+ * - Crée ou récupère le client
+ * - Pour chaque article : recherche ou crée le produit, incrémente le stock
+ * - Enregistre la vente avec les items (sans décrémenter le stock)
  * - Ne passe pas par la file d'attente de synchronisation
  */
 export const importSaleFromDAT = (saleData, itemsData) =>
@@ -644,10 +875,10 @@ export const importSaleFromDAT = (saleData, itemsData) =>
     let saleId;
     await db.execAsync('BEGIN');
     try {
-      // 1. GÃ©nÃ©rer un numÃ©ro de facture unique
+      // 1. Générer un numéro de facture unique
       const invoiceNumber = saleData.invoice_number || `IMP-${Date.now()}`;
 
-      // 2. InsÃ©rer la vente (synced = 1 pour ne pas la synchroniser)
+      // 2. Insérer la vente (synced = 1 pour ne pas la synchroniser)
       const result = await db.runAsync(
         `INSERT INTO sales (invoice, client_id, client_name, total, status, date, tva_applied, payment_method, synced, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -664,7 +895,7 @@ export const importSaleFromDAT = (saleData, itemsData) =>
       );
       saleId = result.lastInsertRowId;
 
-      // 3. InsÃ©rer les items et mettre Ã  jour le stock (incrÃ©mentation)
+      // 3. Insérer les items et mettre à jour le stock (incrémentation)
       for (const item of itemsData) {
         await db.runAsync(
           `INSERT INTO sale_items (sale_id, product_id, barcode, name, quantity, unit_price, total, synced)
@@ -679,7 +910,7 @@ export const importSaleFromDAT = (saleData, itemsData) =>
           1
         );
 
-        // IncrÃ©menter le stock du produit (car import = ajout au stock)
+        // Incrémenter le stock du produit (car import = ajout au stock)
         if (item.product_id) {
           await db.runAsync(
             `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
@@ -701,16 +932,16 @@ export const importSaleFromDAT = (saleData, itemsData) =>
   });
 
 // src/database/database.js
-// Ajouter aprÃ¨s les fonctions existantes
+// Ajouter après les fonctions existantes
 
-// Migration : ajouter colonne image Ã  la table products
+// Migration : ajouter colonne image à la table products
 const _migrateAddImageColumnInternal = async () => {
   try {
     const tableInfo = await db.getAllAsync("PRAGMA table_info(products)");
     const hasImageColumn = tableInfo.some(col => col.name === 'image');
     if (!hasImageColumn) {
       await db.execAsync("ALTER TABLE products ADD COLUMN image TEXT");
-      console.log("âœ… Colonne image ajoutÃ©e Ã  products");
+      console.log("✅ Colonne image ajoutée à products");
     }
   } catch (error) {
     console.error("Erreur migration image column:", error);
@@ -719,7 +950,7 @@ const _migrateAddImageColumnInternal = async () => {
 
 export const migrateAddImageColumn = () => withDbTransaction(_migrateAddImageColumnInternal);
 
-// Mettre Ã  jour l'image d'un produit
+// Mettre à jour l'image d'un produit
 export const updateProductImage = (productId, imageBase64) =>
   withDbTransaction(async () => {
     try {
@@ -731,7 +962,7 @@ export const updateProductImage = (productId, imageBase64) =>
     }
   });
 
-// Mettre Ã  jour le barcode d'un produit
+// Mettre à jour le barcode d'un produit
 export const updateProductBarcode = (productId, barcode) =>
   withDbTransaction(async () => {
     try {
@@ -743,7 +974,7 @@ export const updateProductBarcode = (productId, barcode) =>
     }
   });
 
-// CrÃ©er un produit avec image et barcode
+// Créer un produit avec image et barcode
 export const addProductWithImage = (productData) =>
   withDbTransaction(async () => {
     try {
@@ -770,4 +1001,226 @@ export const addProductWithImage = (productData) =>
   });
 
 
-// Initialiser la base au dÃ©marrage de l'app est maintenant gÃ©rÃ© par App.js explicitement
+// ========== ACHATS FOURNISSEURS ==========
+
+/**
+ * Génère une référence unique d'achat : ACH-XXXXXX
+ */
+const generatePurchaseReference = async () => {
+  try {
+    const result = await db.getFirstAsync('SELECT COUNT(*) as cnt FROM purchases');
+    const num = (result?.cnt || 0) + 1;
+    return `ACH-${String(num).padStart(5, '0')}`;
+  } catch {
+    return `ACH-${Date.now()}`;
+  }
+};
+
+/**
+ * Sauvegarde un achat localement.
+ * Si le statut est "received", incrémente le stock des produits concernés.
+ */
+export const savePurchaseLocally = (purchaseData, items) =>
+  withDbTransaction(async () => {
+    await db.execAsync('BEGIN');
+    try {
+      const reference = purchaseData.reference || (await generatePurchaseReference());
+      const result = await db.runAsync(
+        `INSERT INTO purchases (reference, supplier_name, total, status, date, notes, synced, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        reference,
+        purchaseData.supplier_name || 'Fournisseur inconnu',
+        purchaseData.total || 0,
+        purchaseData.status || 'pending',
+        purchaseData.date || new Date().toISOString().split('T')[0],
+        purchaseData.notes || null,
+        0,
+        new Date().toISOString()
+      );
+      const purchaseId = result.lastInsertRowId;
+
+      for (const item of items) {
+        let resolvedProductId = item.product_id || null;
+
+        // Si reçu → mettre à jour ou créer le produit dans le stock
+        if (purchaseData.status === 'received') {
+          if (item.product_id) {
+            // Produit catalogue connu → incrémenter le stock
+            await db.runAsync(
+              `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+              item.quantity, item.product_id
+            );
+          } else if (item.barcode) {
+            // Connu par code-barres → incrémenter le stock
+            const byBarcode = await db.getFirstAsync(
+              'SELECT id FROM products WHERE barcode = ?', item.barcode
+            );
+            if (byBarcode) {
+              resolvedProductId = byBarcode.id;
+              await db.runAsync(
+                `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+                item.quantity, byBarcode.id
+              );
+            } else {
+              // Code-barres inconnu → créer le produit
+              const ins = await db.runAsync(
+                `INSERT INTO products (name, barcode, category, price, stock_quantity, min_stock, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                item.name, item.barcode, 'Import Achat',
+                item.unit_price || 0, item.quantity, 0,
+                new Date().toISOString()
+              );
+              resolvedProductId = ins.lastInsertRowId;
+            }
+          } else {
+            // Article hors catalogue sans code-barres → créer le produit
+            const ins = await db.runAsync(
+              `INSERT INTO products (name, barcode, category, price, stock_quantity, min_stock, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              item.name, null, 'Import Achat',
+              item.unit_price || 0, item.quantity, 0,
+              new Date().toISOString()
+            );
+            resolvedProductId = ins.lastInsertRowId;
+          }
+        }
+
+        await db.runAsync(
+          `INSERT INTO purchase_items (purchase_id, product_id, barcode, name, quantity, unit_price, total)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          purchaseId,
+          resolvedProductId,
+          item.barcode || null,
+          item.name,
+          item.quantity,
+          item.unit_price,
+          item.total
+        );
+      }
+
+      await db.execAsync('COMMIT');
+      return purchaseId;
+    } catch (error) {
+      await db.execAsync('ROLLBACK');
+      logger.error('Erreur savePurchaseLocally', error);
+      throw error;
+    }
+  });
+
+
+/**
+ * Récupère tous les achats, du plus récent au plus ancien.
+ */
+export const getLocalPurchases = async () => {
+  await dbReady;
+  try {
+    return await db.getAllAsync('SELECT * FROM purchases ORDER BY created_at DESC');
+  } catch (error) {
+    logger.error('Erreur getLocalPurchases', error);
+    return [];
+  }
+};
+
+/**
+ * Récupère les lignes d'un achat donné.
+ */
+export const getPurchaseItems = async (purchaseId) => {
+  try {
+    return await db.getAllAsync(
+      'SELECT * FROM purchase_items WHERE purchase_id = ? ORDER BY id',
+      purchaseId
+    );
+  } catch (error) {
+    logger.error('Erreur getPurchaseItems', error);
+    return [];
+  }
+};
+
+/**
+ * Met à jour le statut d'un achat.
+ * Si le statut passe à "received", incrémente le stock pour chaque item.
+ */
+export const updatePurchaseStatus = (purchaseId, newStatus) =>
+  withDbTransaction(async () => {
+    try {
+      const purchase = await db.getFirstAsync('SELECT status FROM purchases WHERE id = ?', purchaseId);
+      await db.runAsync('UPDATE purchases SET status = ? WHERE id = ?', newStatus, purchaseId);
+
+      // Incrémenter le stock seulement si on passe à "received" depuis un autre état
+      if (newStatus === 'received' && purchase?.status !== 'received') {
+        const items = await getPurchaseItems(purchaseId);
+        for (const item of items) {
+          if (item.product_id) {
+            // Produit catalogue → incrémenter
+            await db.runAsync(
+              `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+              item.quantity, item.product_id
+            );
+          } else if (item.barcode) {
+            // Chercher par code-barres
+            const byBarcode = await db.getFirstAsync(
+              'SELECT id FROM products WHERE barcode = ?', item.barcode
+            );
+            if (byBarcode) {
+              await db.runAsync(
+                `UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?`,
+                item.quantity, byBarcode.id
+              );
+              // Lier le product_id dans purchase_items pour les prochaines fois
+              await db.runAsync(
+                `UPDATE purchase_items SET product_id = ? WHERE id = ?`,
+                byBarcode.id, item.id
+              );
+            } else {
+              // Code-barres inconnu → créer le produit
+              const ins = await db.runAsync(
+                `INSERT INTO products (name, barcode, category, price, stock_quantity, min_stock, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                item.name, item.barcode, 'Import Achat',
+                item.unit_price || 0, item.quantity, 0,
+                new Date().toISOString()
+              );
+              await db.runAsync(
+                `UPDATE purchase_items SET product_id = ? WHERE id = ?`,
+                ins.lastInsertRowId, item.id
+              );
+            }
+          } else {
+            // Article hors catalogue sans code-barres → créer le produit
+            const ins = await db.runAsync(
+              `INSERT INTO products (name, barcode, category, price, stock_quantity, min_stock, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              item.name, null, 'Import Achat',
+              item.unit_price || 0, item.quantity, 0,
+              new Date().toISOString()
+            );
+            // Lier le nouveau produit à la ligne d'achat
+            await db.runAsync(
+              `UPDATE purchase_items SET product_id = ? WHERE id = ?`,
+              ins.lastInsertRowId, item.id
+            );
+          }
+        }
+      }
+      return true;
+    } catch (error) {
+      logger.error('Erreur updatePurchaseStatus', error);
+      return false;
+    }
+  });
+
+
+/**
+ * Supprime un achat et ses lignes (CASCADE).
+ */
+export const deletePurchase = (purchaseId) =>
+  withDbTransaction(async () => {
+    try {
+      await db.runAsync('DELETE FROM purchases WHERE id = ?', purchaseId);
+      return true;
+    } catch (error) {
+      logger.error('Erreur deletePurchase', error);
+      return false;
+    }
+  });
+// Initialiser la base au démarrage de l'app est maintenant géré par App.js explicitement

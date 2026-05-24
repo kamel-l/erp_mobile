@@ -20,6 +20,7 @@ import {
 } from '../components/UIComponents';
 import { getLocalClients, saveClientsLocally } from '../database/database';
 import { getLocalSales } from '../database/salesRepository';
+import { salesAPI } from '../services/api';
 import { useFormValidation } from '../hooks/useFormValidation';
 import { ClientSchema } from '../services/validation';
 import { logger } from '../services/logger';
@@ -220,8 +221,24 @@ export default function ClientsScreenOptimized() {
 
   const deleteClient = (client) => {
     logger.debug('Tentative suppression', { id: client.id });
-    // Show confirmation alert
-    // Then delete...
+    Toast.warning('Maintenir pour supprimer');
+    // Suppression optimisée: API d'abord, fallback local hors ligne.
+    (async () => {
+      try {
+        try {
+          await salesAPI.deleteClient(client.id);
+        } catch {
+          const updated = allClients.filter(c => c.id !== client.id);
+          await saveClientsLocally(updated);
+        }
+        cache.cache.delete('all-clients');
+        await loadClients();
+        Toast.success('Client supprimé');
+      } catch (error) {
+        logger.error('Erreur suppression client', error);
+        Toast.error('Erreur de suppression');
+      }
+    })();
   };
 
   if (loading) {

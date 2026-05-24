@@ -66,7 +66,7 @@ const getApiClient = () => {
   return api;
 };
 
-let api = getApiClient();
+export let api = getApiClient();
 
 // ========== VÉRIFICATION DE CONNEXION ==========
 export const isConnected = async () => {
@@ -256,7 +256,11 @@ export const salesAPI = {
   create: async (saleData, itemsData) => {
     try {
       if (await isConnected()) {
-        const res = await api.post('/sales', { sale: saleData, items: itemsData });
+        const res = await api.post('/sales', {
+          operation_id: generateOperationId(),
+          ...saleData,
+          items: itemsData
+        });
         return res.data.data || res.data;
       } else {
         // Sauvegarde locale + file d'attente
@@ -503,7 +507,7 @@ export const syncManager = {
               const itemsData = parsed.itemsData || parsed.data?.items || parsed.items;
 
               if (saleData && itemsData) {
-                await api.post('/sales', { sale: saleData, items: itemsData });
+                await api.post('/sales', { ...saleData, items: itemsData });
               } else {
                 logger.warn('Incomplete sale data in pending action', parsed);
               }

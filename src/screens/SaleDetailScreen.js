@@ -8,6 +8,7 @@ import * as Sharing from 'expo-sharing';
 import { COLORS, formatDA } from '../services/theme';
 import { Card, Badge, RowBetween, Divider } from '../components/UIComponents';
 import { getSaleWithItems, updateSaleStatus } from '../database/salesRepository';
+import { salesAPI } from '../services/api';
 import ReturnFromInvoiceModal from './modals/ReturnFromInvoiceModal';
 
 export default function SaleDetailScreen({ route, navigation }) {
@@ -40,6 +41,29 @@ export default function SaleDetailScreen({ route, navigation }) {
         } catch (error) {
             Alert.alert('Erreur', 'Impossible de modifier le statut');
         }
+    };
+
+    const deleteSale = async () => {
+        Alert.alert(
+            'Supprimer la facture',
+            `Voulez-vous supprimer ${sale?.invoice || 'cette facture'} ?`,
+            [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                    text: 'Supprimer',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            await salesAPI.deleteSale(saleId);
+                            Alert.alert('Succès', 'Facture supprimée');
+                            navigation.goBack();
+                        } catch (error) {
+                            Alert.alert('Erreur', 'Impossible de supprimer la facture');
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     const exportToPDF = async () => {
@@ -190,6 +214,9 @@ export default function SaleDetailScreen({ route, navigation }) {
                         <Text style={styles.btnText}>↺ Remettre en attente</Text>
                     </TouchableOpacity>
                 )}
+                <TouchableOpacity style={[styles.btn, styles.deleteBtn]} onPress={deleteSale}>
+                    <Text style={styles.btnText}>Supprimer</Text>
+                </TouchableOpacity>
             </View>
 
             <ReturnFromInvoiceModal
@@ -222,5 +249,7 @@ const styles = StyleSheet.create({
     pendingBtn: { backgroundColor: COLORS.warning },
     exportBtn: { backgroundColor: COLORS.primary },
     returnBtn: { backgroundColor: COLORS.danger },
+    deleteBtn: { backgroundColor: '#7F1D1D' },
     btnText: { color: '#fff', fontWeight: '600' },
 });
+

@@ -12,6 +12,7 @@ import {
 } from '../components/UIComponents';
 import { getLocalClients, saveClientsLocally } from '../database/database';
 import { getLocalSales } from '../database/salesRepository';
+import { salesAPI } from '../services/api';
 
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = (width - 48) / 2;
@@ -176,8 +177,12 @@ export default function ClientsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              const updated = clients.filter(c => c.id !== client.id);
-              await saveClientsLocally(updated);
+              try {
+                await salesAPI.deleteClient(client.id);
+              } catch {
+                const updated = clients.filter(c => c.id !== client.id);
+                await saveClientsLocally(updated);
+              }
               await loadClients();
               Alert.alert('Supprimé', 'Client supprimé');
             } catch (error) {

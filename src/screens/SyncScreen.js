@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Alert, ActivityIndicator,
@@ -8,6 +8,7 @@ import {
   setApiUrl,
   getApiUrl,
   isConnected,
+  api,
 } from '../services/api';
 import { toast } from '../components/Toast';
 import { logger } from '../services/logger';
@@ -39,6 +40,9 @@ export default function SyncScreen() {
   const [lastSync, setLastSync] = useState(null);
   const [connInfo, setConnInfo] = useState(null);
   const [pendingCount, setPending] = useState(0);
+  const [autoSyncStatus, setAutoSyncStatus] = useState(null); // null | 'checking' | 'syncing' | 'done'
+  const pollIntervalRef = useRef(null);
+  const isSyncingRef = useRef(false);
 
   const refreshStats = useCallback(async () => {
     const [products, clients, sales, pending, connected, apiUrl, last] = await Promise.all([
@@ -69,6 +73,45 @@ export default function SyncScreen() {
   useEffect(() => {
     refreshStats();
   }, [refreshStats]);
+
+  // ── Polling: vérifie toutes les 30s si l'ERP demande une sync ──
+  const checkAndAutoSync = useCallback(async () => {
+    if (isSyncingRef.current) return;
+    try {
+      const connected = await isConnected();
+      if (!connected) return;
+      const res = await api.get('/sync/check');
+      const { sync_needed } = res.data?.data || res.data || {};
+      if (!sync_needed) return;
+
+      // Acquitter immédiatement pour éviter les doubles déclenchements
+      await api.post('/sync/ack');
+
+      isSyncingRef.current = true;
+      setAutoSyncStatus('syncing');
+      logger.info('Auto-sync triggered by ERP server');
+      toast.info('Synchronisation automatique', "L'ERP a demandé une mise à jour.");
+
+      await syncManager.syncAllData();
+      await refreshStats();
+
+      setAutoSyncStatus('done');
+      toast.success('Sync terminée', 'Données mises à jour depuis l\'ERP.');
+      setTimeout(() => setAutoSyncStatus(null), 5000);
+    } catch (e) {
+      logger.warn('Auto-sync check failed', e?.message);
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, [refreshStats]);
+
+  useEffect(() => {
+    // Lancer le polling dès que le composant est monté
+    pollIntervalRef.current = setInterval(checkAndAutoSync, 30000);
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, [checkAndAutoSync]);
 
   const handleTest = useCallback(async () => {
     const nextUrl = buildApiUrl(wifiIp, wifiPort, internetUrl);
@@ -128,6 +171,19 @@ export default function SyncScreen() {
 
       <StatusBadge connInfo={connInfo} />
       {stats && <StatsRow stats={stats} pending={pendingCount} />}
+
+      {/* Bandeau sync automatique ERP */}
+      {autoSyncStatus === 'syncing' && (
+        <View style={s.autoSyncBanner}>
+          <ActivityIndicator size="small" color="#fff" style={{ marginRight: 10 }} />
+          <Text style={s.autoSyncText}>🔄 Synchronisation demandée par l'ERP en cours…</Text>
+        </View>
+      )}
+      {autoSyncStatus === 'done' && (
+        <View style={[s.autoSyncBanner, { backgroundColor: '#16a34a' }]}>
+          <Text style={s.autoSyncText}>✅ Synchronisation automatique terminée</Text>
+        </View>
+      )}
 
       <Section title="Connexion WiFi locale">
         <Text style={s.label}>Adresse IP du serveur</Text>

@@ -22,7 +22,7 @@ const exportSaleToPDF = async (sale) => {
   const day = String(date.getDate()).padStart(2, '0');
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const year = date.getFullYear();
-  
+
   const safeClientName = sale.client_name.replace(/[^a-zA-Z0-9_-]/g, '_');
   const fileName = `${safeClientName}_${day}-${month}-${year}.pdf`;
 
@@ -122,7 +122,7 @@ const exportSaleToPDF = async (sale) => {
 
   try {
     const { uri } = await Print.printToFileAsync({ html: htmlContent });
-    
+
     // On déplace le fichier vers le dossier Documents avec le bon nom
     const newUri = `${FileSystem.documentDirectory}${fileName}`;
     await FileSystem.moveAsync({
@@ -231,9 +231,7 @@ export default function SalesScreen({ navigation }) {
           <Text style={styles.allInvoicesBtnText}>📄 Voir toutes les factures</Text>
         </TouchableOpacity>
 
-        <SectionTitle action="+ Nouvelle vente" onAction={() => setNewSaleVisible(true)}>
-          Nouvelle vente
-        </SectionTitle>
+       
 
         <Card>
           <RowBetween><Text style={styles.statLabel}>CA total</Text><Text style={[styles.statValue, { color: COLORS.primary }]}>{formatDA(totalCA)}</Text></RowBetween>
@@ -250,16 +248,7 @@ export default function SalesScreen({ navigation }) {
           <ProgressBar value={sales.length ? (paidCount / sales.length) * 100 : 0} max={100} color={COLORS.success} />
         </Card>
 
-        <SectionTitle>Clients Récents</SectionTitle>
-        <View style={{ marginTop: 8 }}>
-          <FlatList
-            data={recentClients}
-            keyExtractor={(item, index) => item.client_id ? item.client_id.toString() : index.toString()}
-            renderItem={renderClientItem}
-            ListEmptyComponent={<Text style={styles.emptyText}>Aucune facture enregistrée</Text>}
-            scrollEnabled={false}
-          />
-        </View>
+        
 
         <TouchableOpacity style={styles.fabBtn} onPress={() => setNewSaleVisible(true)}>
           <Text style={styles.fabTxt}>+ Nouvelle vente</Text>
@@ -314,8 +303,8 @@ export default function SalesScreen({ navigation }) {
                 </TouchableOpacity>
 
                 {selectedSale.status !== 'returned' && (
-                  <TouchableOpacity 
-                    style={[styles.pdfBtn, { backgroundColor: COLORS.danger, marginTop: 8 }]} 
+                  <TouchableOpacity
+                    style={[styles.pdfBtn, { backgroundColor: COLORS.danger, marginTop: 8 }]}
                     onPress={() => {
                       setModalVisible(false);
                       setTimeout(() => setReturnModalVisible(true), 300);
@@ -343,7 +332,7 @@ export default function SalesScreen({ navigation }) {
                 <Text style={styles.clientModalCloseBtn}>✕</Text>
               </TouchableOpacity>
             </View>
-            
+
             <ScrollView style={styles.clientModalBody} showsVerticalScrollIndicator={false}>
               {clientSales.length === 0 ? (
                 <View style={{ padding: 30 }}>
