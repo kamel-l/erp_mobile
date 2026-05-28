@@ -9,6 +9,7 @@ import { COLORS, formatDA } from '../services/theme';
 import { RowBetween } from '../components/UIComponents';
 import { getLocalProducts } from '../database/database';
 import { getLocalSales } from '../database/salesRepository';
+import { logger } from '../services/logger';
 
 const STORAGE_KEYS = {
   DISMISSED_NOTIFS: '@erp_dismissed_notifications', // IDs supprimés
@@ -31,7 +32,7 @@ export default function NotificationsScreen() {
         readIds: read ? JSON.parse(read) : [],
       };
     } catch (error) {
-      console.error('Erreur chargement IDs persistants:', error);
+      logger.error('Erreur chargement IDs persistants', error);
       return { dismissedIds: [], readIds: [] };
     }
   };
@@ -41,7 +42,7 @@ export default function NotificationsScreen() {
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.READ_NOTIFS, JSON.stringify(ids));
     } catch (error) {
-      console.error('Erreur sauvegarde readIds:', error);
+      logger.error('Erreur sauvegarde readIds', error);
     }
   };
 
@@ -50,7 +51,7 @@ export default function NotificationsScreen() {
     try {
       await AsyncStorage.setItem(STORAGE_KEYS.DISMISSED_NOTIFS, JSON.stringify(ids));
     } catch (error) {
-      console.error('Erreur sauvegarde dismissedIds:', error);
+      logger.error('Erreur sauvegarde dismissedIds', error);
     }
   };
 
@@ -125,7 +126,7 @@ export default function NotificationsScreen() {
       newNotifs.sort((a, b) => b.date - a.date);
       setNotifications(newNotifs);
     } catch (error) {
-      console.error('Erreur génération notifications:', error);
+      logger.error('Erreur génération notifications', error);
     }
   };
 

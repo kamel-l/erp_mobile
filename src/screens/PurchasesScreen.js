@@ -10,6 +10,7 @@ import {
   Card, SectionTitle, Divider, RowBetween, Badge,
 } from '../components/UIComponents';
 import NewPurchaseModal from './modals/NewPurchaseModal';
+import { logger } from '../services/logger';
 import {
   getLocalPurchases,
   getPurchaseItems,
@@ -49,7 +50,7 @@ export default function PurchasesScreen({ navigation }) {
       const data = await getLocalPurchases();
       setPurchases(data || []);
     } catch (error) {
-      console.error('Erreur chargement achats:', error);
+      logger.error('Erreur chargement achats', error);
       setPurchases([]);
     }
   }, []);

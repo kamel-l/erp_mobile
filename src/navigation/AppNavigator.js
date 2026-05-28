@@ -12,7 +12,7 @@ import DashboardScreen from '../screens/DashboardScreen';
 import SalesScreen from '../screens/SalesScreen';
 import PurchasesScreen from '../screens/PurchasesScreen';
 import StockScreen from '../screens/StockScreen';
-import ClientsScreen from '../screens/ClientsScreen';
+import ClientsScreen from '../screens/ClientsScreen_Optimized';
 import ReportsScreen from '../screens/ReportsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
@@ -23,6 +23,7 @@ import UserManagementScreen from '../screens/UserManagementScreen';
 import InvoicesScreen from '../screens/InvoicesScreen';
 import SaleDetailScreen from '../screens/SaleDetailScreen';
 import { LoadingView } from '../components/UIComponents';
+import { logger } from '../services/logger';
 import BarcodeImageImportScreen from '../screens/BarcodeImageImportScreen';
 import SyncScreen from '../screens/SyncScreen';
 
@@ -76,7 +77,7 @@ function NotifBell({ navigation }) {
 
       setCount(unreadCount);
     } catch (error) {
-      console.error('Erreur chargement badge notif:', error);
+      logger.error('Erreur chargement badge notif', error);
     }
   };
 

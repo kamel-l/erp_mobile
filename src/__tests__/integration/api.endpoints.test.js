@@ -72,6 +72,13 @@ jest.mock('../../database/salesRepository', () => ({
   saveSalesOffline: jest.fn(async () => true),
 }));
 
+jest.mock('../../database/dashboardRepository', () => ({
+  getDashboardStatsOffline: jest.fn(async () => null),
+  saveDashboardStatsOffline: jest.fn(async () => true),
+  getSalesWeekOffline: jest.fn(async () => []),
+  saveSalesWeekOffline: jest.fn(async () => true),
+}));
+
 jest.mock('../../utils/performanceOptimizations', () => ({
   cache: {
     clear: jest.fn(),
@@ -135,7 +142,7 @@ describe('API Endpoint Tests', () => {
   });
 
   test('dashboardAPI.getStats retourne le cache offline si le endpoint echoue', async () => {
-    const { getDashboardStatsOffline } = require('../../database/database');
+    const { getDashboardStatsOffline } = require('../../database/dashboardRepository');
     mockApiClient.get.mockRejectedValueOnce(new Error('network fail'));
     getDashboardStatsOffline.mockResolvedValueOnce({ salesToday: 42 });
 

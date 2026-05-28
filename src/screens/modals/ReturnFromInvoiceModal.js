@@ -5,6 +5,9 @@ import {
 } from 'react-native';
 import { COLORS, formatDA } from '../../services/theme';
 import { calculateSaleTotals, savePreparedSale } from '../../services/salesService';
+import { salesAPI } from '../../services/api';
+import { updateSaleStatus } from '../../database/salesRepository';
+import { logger } from '../../services/logger';
 
 export default function ReturnFromInvoiceModal({ visible, onClose, onSaved, sale }) {
   const [returnItems, setReturnItems] = useState([]);
@@ -73,6 +76,13 @@ export default function ReturnFromInvoiceModal({ visible, onClose, onSaved, sale
         includeTVA: sale.tva_applied,
         isReturn: true, 
       });
+
+      try {
+        await salesAPI.updateStatus(sale.id, 'returned');
+        await updateSaleStatus(sale.id, 'returned');
+      } catch (err) {
+        logger.warn('Impossible de mettre à jour le statut de la vente originale', err);
+      }
 
       Alert.alert('Succès', 'Le retour a été enregistré avec succès.');
       onSaved();

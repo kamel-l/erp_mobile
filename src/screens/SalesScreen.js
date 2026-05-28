@@ -9,10 +9,11 @@ import { COLORS, formatDA } from '../services/theme';
 import {
   Card, SectionTitle, Divider, RowBetween, ProgressBar, Badge,
 } from '../components/UIComponents';
-import NewSaleModal from './modals/NewSaleModal';
+import NewSaleModal from './modals/NewSaleModal_Enhanced';
 import ReturnFromInvoiceModal from './modals/ReturnFromInvoiceModal';
 import { getLocalSales } from '../database/salesRepository';
 import * as Print from 'expo-print';
+import { logger } from '../services/logger';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -152,7 +153,7 @@ export default function SalesScreen({ navigation }) {
       const cachedSales = await getLocalSales();
       setSales(cachedSales || []);
     } catch (error) {
-      console.error('Erreur chargement ventes:', error);
+      logger.error('Erreur chargement ventes', error);
       setSales([]);
     }
   }, []);

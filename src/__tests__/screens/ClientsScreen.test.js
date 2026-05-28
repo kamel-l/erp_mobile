@@ -2,7 +2,7 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import ClientsScreen from '../../screens/ClientsScreen';
+import ClientsScreen from '../../screens/ClientsScreen_Optimized';
 import { AuthProvider } from '../../context/AuthContext';
 
 // Mock des dépendances

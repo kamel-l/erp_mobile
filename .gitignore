@@ -4,3 +4,5 @@ node_modules
 .eas/
 android/
 ios/
+.env
+backend/.env

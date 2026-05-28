@@ -55,12 +55,17 @@ export default function SyncScreen() {
       getLastSyncTime(),
     ]);
 
+    const pendingInvoices = sales.filter(
+     s => s.status === 'pending' || s.method === 'credit'
+     ).length;
+
     const totalCA = sales.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
     setStats({
       total_produits: products.length,
       total_clients: clients.length,
       total_ventes: sales.length,
       ca_total: totalCA,
+      factures_en_attente: pendingInvoices,
     });
     setPending(pending.length);
     setLastSync(last);
@@ -131,17 +136,34 @@ export default function SyncScreen() {
   const handleSync = useCallback(async () => {
     setSyncing(true);
     try {
-      await syncManager.syncAllData();
+      const targetApiUrl = buildApiUrl(wifiIp, wifiPort, internetUrl);
+      const syncResult = await syncManager.syncAllData({
+        useServerSyncRun: true,
+        targetApiUrl,
+      });
       await refreshStats();
-      toast.success('Succès', 'La synchronisation est terminée.');
+      const report = syncResult?.serverSyncReport;
+      if (report?.push || report?.pull) {
+        const pushDone = report?.push?.done ?? 0;
+        const pushFailed = report?.push?.failed ?? 0;
+        const pullProducts = report?.pull?.products ?? 0;
+        const pullClients = report?.pull?.clients ?? 0;
+        const pullSales = report?.pull?.sales ?? 0;
+        toast.success(
+          'Succ�s',
+          `Sync termin�e. Push: ${pushDone} ok / ${pushFailed} erreur(s). Pull: ${pullProducts} produits, ${pullClients} clients, ${pullSales} ventes.`
+        );
+      } else {
+        toast.success('Succ�s', 'La synchronisation est termin�e.');
+      }
       logger.info('Sync completed manually');
     } catch (error) {
       logger.error('Sync error in UI', error);
-      toast.error('Erreur', `Échec de la synchronisation: ${error.message}`);
+      toast.error('Erreur', `�chec de la synchronisation: ${error.message}`);
     } finally {
       setSyncing(false);
     }
-  }, [refreshStats]);
+  }, [wifiIp, wifiPort, internetUrl, refreshStats]);
 
   const handleClear = useCallback(() => {
     Alert.alert(
@@ -268,7 +290,7 @@ function StatsRow({ stats, pending }) {
     { label: 'Produits', value: stats.total_produits },
     { label: 'Clients', value: stats.total_clients },
     { label: 'Ventes', value: stats.total_ventes },
-    { label: 'En attente', value: pending },
+    { label: 'En attente', value: stats.factures_en_attente ?? 0 },
   ];
   return (
     <View style={s.statsRow}>
@@ -343,3 +365,4 @@ const s = StyleSheet.create({
   },
   pendingText: { color: '#FBBF24', fontSize: 13, fontWeight: '600' },
 });
+

@@ -1,4 +1,19 @@
 import { db, withDbTransaction, dbReady } from './database';
+import { logger } from '../services/logger';
+
+/**
+ * Normalise les statuts venant du serveur ERP PyQt vers les valeurs
+ * reconnues par l'application mobile : 'paid' | 'pending' | 'returned' | 'cancelled'
+ */
+export function normalizeStatus(rawStatus) {
+  if (!rawStatus) return 'paid';
+  const s = String(rawStatus).toLowerCase().trim();
+  if (['a credit', 'credit', 'pending', 'en attente'].includes(s)) return 'pending';
+  if (['paid', 'completed', 'payee', 'payée', 'paye'].includes(s)) return 'paid';
+  if (['returned', 'retour', 'return'].includes(s)) return 'returned';
+  if (['cancelled', 'canceled', 'annule', 'annulé', 'annulée'].includes(s)) return 'cancelled';
+  return rawStatus; // conserver tel quel si inconnu
+}
 
 export const addToPendingSync = (type, recordId, data) =>
   withDbTransaction(async () => {
@@ -9,7 +24,7 @@ export const addToPendingSync = (type, recordId, data) =>
         type, JSON.stringify({ recordId, data }), new Date().toISOString()
       );
     } catch (error) {
-      console.error('Erreur addToPendingSync:', error);
+      logger.error('Erreur addToPendingSync', error);
     }
   });
 
@@ -77,7 +92,7 @@ export const saveSaleLocally = (sale, items, isReturn = false) =>
 
       return saleId;
     } catch (error) {
-      console.error('Erreur saveSaleLocally:', error);
+      logger.error('Erreur saveSaleLocally', error);
       return null;
     }
   });
@@ -98,7 +113,7 @@ export const saveSalesOffline = (sales) =>
           sale.client_id || null,
           sale.client_name || '',
           sale.total,
-          sale.status === 'completed' ? 'paid' : (sale.status || 'paid'),
+          normalizeStatus(sale.payment_status || sale.status),
           sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
           1,
           sale.id,
@@ -125,7 +140,7 @@ export const saveSalesOffline = (sales) =>
       await db.execAsync('COMMIT');
     } catch (error) {
       await db.execAsync('ROLLBACK');
-      console.error('Erreur saveSalesOffline:', error);
+      logger.error('Erreur saveSalesOffline', error);
     }
   });
 
@@ -147,7 +162,7 @@ export const upsertSalesOffline = (sales) =>
             sale.client_id || null,
             sale.client_name || '',
             sale.total,
-            sale.status === 'completed' ? 'paid' : (sale.status || 'paid'),
+            normalizeStatus(sale.status),
             sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
             sale.id,
             sale.created_at || sale.sale_date || new Date().toISOString(),
@@ -180,7 +195,7 @@ export const upsertSalesOffline = (sales) =>
             sale.client_id || null,
             sale.client_name || '',
             sale.total,
-            sale.status === 'completed' ? 'paid' : (sale.status || 'paid'),
+            normalizeStatus(sale.status),
             sale.date || sale.sale_date || new Date().toISOString().split('T')[0],
             1,
             sale.id,
@@ -209,7 +224,7 @@ export const upsertSalesOffline = (sales) =>
       return true;
     } catch (error) {
       await db.execAsync('ROLLBACK');
-      console.error('Erreur upsertSalesOffline:', error);
+      logger.error('Erreur upsertSalesOffline', error);
       return false;
     }
   });
@@ -269,7 +284,7 @@ export const getLocalSales = async () => {
 
     return Array.from(salesMap.values());
   } catch (error) {
-    console.error('Erreur getLocalSales:', error);
+    logger.error('Erreur getLocalSales', error);
     return [];
   }
 };
@@ -282,7 +297,7 @@ export const getSaleWithItems = async (saleId) => {
     sale.items = items;
     return sale;
   } catch (error) {
-    console.error('Erreur getSaleWithItems:', error);
+    logger.error('Erreur getSaleWithItems', error);
     return null;
   }
 };
@@ -293,7 +308,7 @@ export const updateSaleStatus = (saleId, newStatus) =>
       await db.runAsync('UPDATE sales SET status = ? WHERE id = ?', newStatus, saleId);
       return true;
     } catch (error) {
-      console.error('Erreur updateSaleStatus:', error);
+      logger.error('Erreur updateSaleStatus', error);
       return false;
     }
   });
@@ -312,7 +327,7 @@ export const initInvoiceCounter = () =>
         await db.runAsync('INSERT INTO invoice_counter (id, last_number) VALUES (1, 999)');
       }
     } catch (error) {
-      console.error('Erreur initInvoiceCounter:', error);
+      logger.error('Erreur initInvoiceCounter', error);
     }
   });
 

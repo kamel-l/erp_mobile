@@ -11,6 +11,7 @@ import {
     SearchBar,
 } from '../components/UIComponents';
 import { getLocalSales } from '../database/salesRepository';
+import { logger } from '../services/logger';
 
 const AVATAR_COLORS = [
     { bg: '#E3F2FD', text: '#0D47A1' },
@@ -32,7 +33,7 @@ export default function InvoicesScreen({ navigation }) {
             const cachedSales = await getLocalSales();
             setSales(cachedSales || []);
         } catch (error) {
-            console.error('Erreur chargement ventes:', error);
+            logger.error('Erreur chargement ventes', error);
             setSales([]);
         }
     }, []);
@@ -127,7 +128,7 @@ export default function InvoicesScreen({ navigation }) {
                             onPress={() => setStatusFilter(status)}
                         >
                             <Text style={[styles.filterChipText, statusFilter === status && styles.filterChipTextActive]}>
-                                {status === 'all' ? 'Toutes' : status === 'paid' ? 'Payées' : status === 'pending' ? 'En attente' : 'Retours'}
+                                {status === 'all' ? 'Toutes' : status === 'paid' ? 'Payées' : status === 'pending' ? 'À crédit' : 'Retours'}
                             </Text>
                         </TouchableOpacity>
                     ))}

@@ -18,6 +18,7 @@ import {
   importSaleFromDAT,
   clearAllData,
 } from '../database/database';
+import { logger } from '../services/logger';
 
 // Stock par défaut (uniquement pour l'initialisation manuelle)
 const DEFAULT_STOCK = [
@@ -52,7 +53,7 @@ export default function StockImportScreen({ navigation }) {
       setProducts(prods);
       setHasStock(prods.length > 0);
     } catch (error) {
-      console.error('Erreur chargement:', error);
+      logger.error('Erreur chargement', error);
     } finally {
       setLoading(false);
     }
@@ -269,7 +270,7 @@ export default function StockImportScreen({ navigation }) {
     }
 
     // DEBUG : afficher les clés reçues (dans la console)
-    console.log('📦 Paramètres du fichier DAT :', Object.keys(params).join(', '));
+    logger.info('Paramètres du fichier DAT', { keys: Object.keys(params).join(', ') });
 
     const clientName = (params.Customer || '').trim() || 'Client Importé';
     const dateStr = params.Date ? params.Date.split(' ')[0] : new Date().toISOString().split('T')[0];
@@ -312,7 +313,7 @@ export default function StockImportScreen({ navigation }) {
       ).trim();
       
       if (!name) {
-        console.warn(`⚠️ Aucun nom trouvé pour l'article ${i}, les clés disponibles :`, Object.keys(params).filter(k => k.includes(`Item${i}`)));
+        logger.warn(`Aucun nom trouvé pour l'article ${i}`, { keys: Object.keys(params).filter(k => k.includes(`Item${i}`)) });
         name = `Article ${i}`;
       }
 
@@ -406,7 +407,7 @@ export default function StockImportScreen({ navigation }) {
           await parseAndImportDAT(fileContent);
           successCount++;
         } catch (err) {
-          console.error(`Erreur avec ${file.name}:`, err);
+          logger.error(`Erreur avec ${file.name}`, err);
           errorCount++;
         }
       }

@@ -10,6 +10,7 @@ import {
   Card, KpiCard, Badge, SectionTitle, Divider,
   AlertDot, RowBetween, LoadingView,
 } from '../components/UIComponents';
+import { logger } from '../services/logger';
 import {
   getLocalProducts,
   getLowStockOffline,
@@ -296,7 +297,7 @@ export default function DashboardScreen() {
       // Dernières factures
       setLastInvoices(sales.slice(0, 10));
     } catch (error) {
-      console.error('Erreur chargement dashboard:', error);
+      logger.error('Erreur chargement dashboard', error);
       // Fallback : lecture du cache
       const cachedStats = await getDashboardStatsOffline();
       const cachedSalesWeek = await getSalesWeekOffline();
@@ -357,7 +358,7 @@ export default function DashboardScreen() {
       });
       setTopClients(Array.from(clientMap.values()).sort((a, b) => b.total - a.total).slice(0, 5));
     } catch (error) {
-      console.error(error);
+      logger.error('Erreur top clients', error);
     }
   }, []);
 
@@ -366,7 +367,7 @@ export default function DashboardScreen() {
       const sales = await getLocalSales();
       setLastInvoices(sales.slice(0, 10));
     } catch (error) {
-      console.error(error);
+      logger.error('Erreur dernières factures', error);
     }
   }, []);
 

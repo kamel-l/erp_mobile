@@ -13,6 +13,7 @@ import {
 } from '../components/UIComponents';
 import { getLocalProducts, getLocalClients } from '../database/database';
 import { getLocalSales } from '../database/salesRepository';
+import { logger } from '../services/logger';
 
 export default function ReportsScreen() {
   const [refreshing, setRefreshing] = useState(false);
@@ -97,7 +98,7 @@ export default function ReportsScreen() {
         stockValue,
       });
     } catch (error) {
-      console.error(error);
+      logger.error('Erreur rapports', error);
       Alert.alert('Erreur', 'Impossible de charger les données');
     } finally {
       setLoading(false);

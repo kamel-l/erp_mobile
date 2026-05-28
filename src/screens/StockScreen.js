@@ -14,6 +14,7 @@ import {
   Card, KpiCard, Badge, SectionTitle, Divider,
   ProgressBar, SearchBar,
 } from '../components/UIComponents';
+import { logger } from '../services/logger';
 import { getLocalProducts, saveProductsLocally, getProductByBarcode, updateProduct, deleteProduct, addProductWithImage } from '../database/database';
 import { stockAPI } from '../services/api';
 
@@ -51,7 +52,7 @@ export default function StockScreen() {
       const prods = await getLocalProducts();
       setProducts(prods || []);
     } catch (error) {
-      console.error('Erreur chargement produits:', error);
+      logger.error('Erreur chargement produits', error);
       setProducts([]);
     } finally {
       setLoading(false);

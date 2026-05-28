@@ -24,7 +24,7 @@ import { salesAPI } from '../services/api';
 import { useFormValidation } from '../hooks/useFormValidation';
 import { ClientSchema } from '../services/validation';
 import { logger } from '../services/logger';
-import Toast from '../components/Toast';
+import { toast } from '../components/Toast';
 import {
   usePagination,
   useCache,
@@ -131,7 +131,7 @@ export default function ClientsScreenOptimized() {
             updatedClients.push(newClient);
             cache.cache.delete('all-clients');
             logger.info('Nouveau client créé', { id: newClient.id });
-            Toast.success('Client ajouté ✓');
+            toast.success('Client ajouté ✓');
           } else {
             const index = updatedClients.findIndex(c => c.id === editingClientId);
             if (index !== -1) {
@@ -141,7 +141,7 @@ export default function ClientsScreenOptimized() {
               };
               cache.cache.delete('all-clients');
               logger.info('Client modifié', { id: editingClientId });
-              Toast.success('Client modifié ✓');
+              toast.success('Client modifié ✓');
             }
           }
 
@@ -152,7 +152,7 @@ export default function ClientsScreenOptimized() {
         });
       } catch (error) {
         logger.error('Erreur lors de l\'enregistrement', error);
-        Toast.error('Erreur d\'enregistrement');
+        toast.error('Erreur d\'enregistrement');
       }
     }
   );
@@ -221,7 +221,7 @@ export default function ClientsScreenOptimized() {
 
   const deleteClient = (client) => {
     logger.debug('Tentative suppression', { id: client.id });
-    Toast.warning('Maintenir pour supprimer');
+    toast.warning('Maintenir pour supprimer');
     // Suppression optimisée: API d'abord, fallback local hors ligne.
     (async () => {
       try {
@@ -233,10 +233,10 @@ export default function ClientsScreenOptimized() {
         }
         cache.cache.delete('all-clients');
         await loadClients();
-        Toast.success('Client supprimé');
+        toast.success('Client supprimé');
       } catch (error) {
         logger.error('Erreur suppression client', error);
-        Toast.error('Erreur de suppression');
+        toast.error('Erreur de suppression');
       }
     })();
   };

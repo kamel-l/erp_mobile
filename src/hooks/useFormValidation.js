@@ -3,6 +3,7 @@
 
 import { useState, useCallback } from 'react';
 import { validateForm } from '../services/validation';
+import { logger } from '../services/logger';
 
 export const useFormValidation = (initialValues, schema, onSubmit) => {
   const [values, setValues] = useState(initialValues);
@@ -51,7 +52,7 @@ export const useFormValidation = (initialValues, schema, onSubmit) => {
       setErrors({});
       setTouched({});
     } catch (err) {
-      console.error('Erreur soumission:', err);
+      logger.error('Erreur soumission formulaire', err);
     } finally {
       setIsSubmitting(false);
     }

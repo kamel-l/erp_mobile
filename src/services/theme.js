@@ -57,7 +57,9 @@ export const formatDA = (amount) => {
 
 export const STATUS_CONFIG = {
   paid: { label: 'Payée', bg: '#E8F5E9', color: '#1B5E20' },
-  pending: { label: 'En attente', bg: '#FFFDE7', color: '#E65100' },
+  pending: { label: 'À crédit / Attente', bg: '#FFF8E1', color: '#E65100' },
+  credit: { label: 'À crédit', bg: '#FFF8E1', color: '#E65100' },
+  'a credit': { label: 'À crédit', bg: '#FFF8E1', color: '#E65100' },
   returned: { label: 'Retour', bg: '#FFEBEE', color: '#C62828' },
   cancelled: { label: 'Annulée', bg: '#FFEBEE', color: '#B71C1C' },
   present: { label: 'Présent', bg: '#E8F5E9', color: '#1B5E20' },

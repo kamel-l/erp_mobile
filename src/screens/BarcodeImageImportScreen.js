@@ -14,6 +14,7 @@ import {
     updateProductImage,
     updateProductBarcode,
 } from '../database/database';
+import { logger } from '../services/logger';
 
 const MAX_IMAGE_SIZE_KB = 300;
 const SUPPORTED_TYPES = ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e'];
@@ -31,7 +32,7 @@ const resizeImage = async (uri) => {
         }
         return uri;
     } catch (error) {
-        console.warn('Redimension échoué:', error);
+        logger.warn('Redimension échoué', error);
         return uri;
     }
 };

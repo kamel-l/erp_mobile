@@ -10,6 +10,7 @@ import { Card, Badge, RowBetween, Divider } from '../components/UIComponents';
 import { getSaleWithItems, updateSaleStatus } from '../database/salesRepository';
 import { salesAPI } from '../services/api';
 import ReturnFromInvoiceModal from './modals/ReturnFromInvoiceModal';
+import { logger } from '../services/logger';
 
 export default function SaleDetailScreen({ route, navigation }) {
     const { saleId } = route.params;
@@ -35,6 +36,7 @@ export default function SaleDetailScreen({ route, navigation }) {
 
     const changeStatus = async (newStatus) => {
         try {
+            await salesAPI.updateStatus(saleId, newStatus);
             await updateSaleStatus(saleId, newStatus);
             setSale(prev => ({ ...prev, status: newStatus }));
             Alert.alert('Succès', `Statut modifié en ${newStatus === 'paid' ? 'Payée' : newStatus === 'cancelled' ? 'Annulée' : 'En attente'}`);
@@ -152,7 +154,7 @@ export default function SaleDetailScreen({ route, navigation }) {
                 Alert.alert('Erreur', 'Le partage n\'est pas disponible sur cet appareil');
             }
         } catch (error) {
-            console.error(error);
+            logger.error('Erreur détail vente', error);
             Alert.alert('Erreur', 'Impossible de générer le PDF');
         } finally {
             setExporting(false);
