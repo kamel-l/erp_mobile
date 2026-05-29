@@ -11,12 +11,14 @@ import { getSaleWithItems, updateSaleStatus } from '../database/salesRepository'
 import { salesAPI } from '../services/api';
 import ReturnFromInvoiceModal from './modals/ReturnFromInvoiceModal';
 import { logger } from '../services/logger';
+import { printSaleTicket } from '../services/thermalPrinter';
 
 export default function SaleDetailScreen({ route, navigation }) {
     const { saleId } = route.params;
     const [sale, setSale] = useState(null);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
+    const [printingTicket, setPrintingTicket] = useState(false);
     const [returnModalVisible, setReturnModalVisible] = useState(false);
 
     useEffect(() => {
@@ -161,6 +163,20 @@ export default function SaleDetailScreen({ route, navigation }) {
         }
     };
 
+    const printTicket = async () => {
+        if (!sale) return;
+        setPrintingTicket(true);
+        try {
+            const printer = await printSaleTicket(sale);
+            Alert.alert('Succès', `Ticket envoyé à ${printer.name || printer.address}`);
+        } catch (error) {
+            logger.error('Erreur impression ticket', error);
+            Alert.alert('Erreur', error.message || 'Impossible d’imprimer le ticket');
+        } finally {
+            setPrintingTicket(false);
+        }
+    };
+
     if (loading) return <View style={styles.loading}><ActivityIndicator size="large" color={COLORS.primary} /><Text>Chargement...</Text></View>;
     if (!sale) return <View style={styles.loading}><Text>Facture introuvable</Text></View>;
 
@@ -195,6 +211,9 @@ export default function SaleDetailScreen({ route, navigation }) {
             <View style={styles.buttons}>
                 <TouchableOpacity style={[styles.btn, styles.exportBtn]} onPress={exportToPDF} disabled={exporting}>
                     <Text style={styles.btnText}>{exporting ? 'Génération...' : '📎 Exporter PDF'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.btn, styles.ticketBtn]} onPress={printTicket} disabled={printingTicket}>
+                    <Text style={styles.btnText}>{printingTicket ? 'Impression...' : 'Imprimer ticket'}</Text>
                 </TouchableOpacity>
                 {sale.status !== 'returned' && (
                     <TouchableOpacity style={[styles.btn, styles.returnBtn]} onPress={() => setReturnModalVisible(true)}>
@@ -250,6 +269,7 @@ const styles = StyleSheet.create({
     cancelBtn: { backgroundColor: COLORS.danger },
     pendingBtn: { backgroundColor: COLORS.warning },
     exportBtn: { backgroundColor: COLORS.primary },
+    ticketBtn: { backgroundColor: '#111827' },
     returnBtn: { backgroundColor: COLORS.danger },
     deleteBtn: { backgroundColor: '#7F1D1D' },
     btnText: { color: '#fff', fontWeight: '600' },

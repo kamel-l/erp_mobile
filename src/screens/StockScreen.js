@@ -187,9 +187,10 @@ export default function StockScreen() {
           try {
             try {
               await stockAPI.deleteProduct(id);
-            } catch {
-              await deleteProduct(id);
+            } catch (error) {
+              logger.warn('Suppression serveur indisponible, suppression locale', error);
             }
+            await deleteProduct(id);
             await loadProducts();
             Alert.alert('Succès', 'Produit supprimé avec succès');
           } catch (e) {
@@ -253,17 +254,19 @@ export default function StockScreen() {
   };
 
   const filtered = products.filter(p => {
-    const searchLower = search.toLowerCase();
-    if (searchLower === '') return true;
-    // Première lettre du nom
-    const nameFirst = p.name.charAt(0).toLowerCase();
-    if (nameFirst === searchLower) return true;
-    // Première lettre du code-barres
-    const barcodeFirst = p.barcode ? p.barcode.charAt(0).toLowerCase() : '';
-    if (barcodeFirst === searchLower) return true;
-    // Pour conserver la recherche par code-barres complet (scanner)
-    if (p.barcode && p.barcode.toLowerCase().includes(searchLower)) return true;
-    return false;
+    if (tab === 'low' && getStockStatus(p.stock_quantity || 0, p.min_stock || 0) === 'ok') {
+      return false;
+    }
+
+    const searchLower = search.trim().toLowerCase();
+    if (!searchLower) return true;
+
+    return [
+      p.name,
+      p.barcode,
+      p.category,
+      p.description,
+    ].some(value => String(value || '').toLowerCase().includes(searchLower));
   });
 
 

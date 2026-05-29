@@ -81,6 +81,11 @@ export const syncManager = {
               await api.delete(`/sales/${data.id}`);
               break;
             }
+            case 'DELETE_PRODUCT': {
+              const data = typeof action.data === 'string' ? JSON.parse(action.data) : action.data;
+              await api.delete(`/products/${data.productId}`);
+              break;
+            }
             case 'MARK_ATTENDANCE': {
               const data = typeof action.data === 'string' ? JSON.parse(action.data) : action.data;
               const { employeeId, status } = data;

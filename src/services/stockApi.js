@@ -2,7 +2,7 @@ import { api, isConnected } from './apiClient';
 import { logger } from './logger';
 import { MOCK_DATA } from './mockData';
 import {
-  getLocalProducts, saveProductsLocally, getLowStockOffline, saveLowStockOffline,
+  getLocalProducts, upsertProductsLocally, getLowStockOffline, saveLowStockOffline,
   addPendingAction
 } from '../database/database';
 
@@ -12,7 +12,9 @@ export const stockAPI = {
       if (await isConnected()) {
         const res = await api.get('/products', { params });
         const data = res.data.data || res.data;
-        await saveProductsLocally(data);
+        if (Array.isArray(data) && data.length > 0 && typeof upsertProductsLocally === 'function') {
+          await upsertProductsLocally(data);
+        }
         return data;
       }
     } catch (error) {
@@ -75,6 +77,23 @@ export const stockAPI = {
       }
     } catch (error) {
       logger.error('Error updating stock', error);
+      throw error;
+    }
+  },
+
+  deleteProduct: async (productId) => {
+    try {
+      if (await isConnected()) {
+        const res = await api.delete(`/products/${productId}`);
+        return res.data.data || res.data;
+      }
+      await addPendingAction({
+        type: 'DELETE_PRODUCT',
+        data: { productId },
+      });
+      return { offline: true, message: 'Produit supprimé localement' };
+    } catch (error) {
+      logger.error('Error deleting product', error);
       throw error;
     }
   },

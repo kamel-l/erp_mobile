@@ -2,10 +2,10 @@ import { api, isConnected, generateOperationId } from './apiClient';
 import { logger } from './logger';
 import { MOCK_DATA } from './mockData';
 import {
-  getLocalProducts, saveProductsLocally, getLocalClients, saveClientsLocally,
-  addPendingAction, getPendingActions, removePendingAction
+  getLocalClients, upsertClientsLocally,
+  addPendingAction
 } from '../database/database';
-import { getLocalSales, saveSaleLocally, saveSalesOffline } from '../database/salesRepository';
+import { getLocalSales, saveSaleLocally, upsertSalesOffline } from '../database/salesRepository';
 
 export const salesAPI = {
   getAll: async (params = {}) => {
@@ -13,8 +13,8 @@ export const salesAPI = {
       if (await isConnected()) {
         const res = await api.get('/sales', { params });
         const data = res.data.data || res.data;
-        if (data && Array.isArray(data) && data.length > 0) {
-          await saveSalesOffline(data);
+        if (data && Array.isArray(data) && data.length > 0 && typeof upsertSalesOffline === 'function') {
+          await upsertSalesOffline(data);
         }
         return data;
       }
@@ -109,7 +109,9 @@ export const salesAPI = {
       if (await isConnected()) {
         const res = await api.get('/clients');
         const data = res.data.data || res.data;
-        await saveClientsLocally(data);
+        if (Array.isArray(data) && data.length > 0 && typeof upsertClientsLocally === 'function') {
+          await upsertClientsLocally(data);
+        }
         return data;
       }
     } catch (error) {

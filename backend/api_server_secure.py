@@ -72,13 +72,38 @@ def db_response(success, data=None, error=None, code=None, status=200):
     """Formatter une réponse JSON"""
     response = {
         'success': success,
-        'data': data or {},
+        'data': data if data is not None else {},
     }
     if error:
         response['error'] = error
     if code:
         response['code'] = code
     return jsonify(response), status
+
+
+def table_columns(db, table):
+    return {row['name'] for row in db.execute(f'PRAGMA table_info({table})').fetchall()}
+
+
+def pick_column(columns, *names):
+    for name in names:
+        if name in columns:
+            return name
+    return None
+
+
+def insert_dynamic(db, table, values):
+    columns = table_columns(db, table)
+    filtered = {k: v for k, v in values.items() if k in columns}
+    if not filtered:
+        raise ValueError(f'Aucune colonne valide pour {table}')
+    names = ', '.join(filtered.keys())
+    placeholders = ', '.join(['?'] * len(filtered))
+    cursor = db.execute(
+        f'INSERT INTO {table} ({names}) VALUES ({placeholders})',
+        tuple(filtered.values())
+    )
+    return cursor.lastrowid
 
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
@@ -272,18 +297,171 @@ def get_sale(sale_id):
     return db_response(True, data=result)
 
 
+@app.route('/api/sales', methods=['POST'])
+@require_auth
+def create_sale():
+    """Créer une vente depuis le mobile, avec ses lignes."""
+    db = get_db()
+    try:
+        data = request.json or {}
+        items = data.get('items') or []
+        if not items:
+            return db_response(False, error='Articles requis', code='MISSING_ITEMS', status=400)
+
+        now = datetime.now().isoformat()
+        sales_cols = table_columns(db, 'sales')
+        date_col = pick_column(sales_cols, 'sale_date', 'date', 'created_at')
+        status_col = pick_column(sales_cols, 'status', 'payment_status')
+        invoice = data.get('invoice') or data.get('invoice_number') or f'MOB-{int(datetime.now().timestamp())}'
+
+        sale_values = {
+            'invoice': invoice,
+            'invoice_number': invoice,
+            'client_id': data.get('client_id'),
+            'client_name': data.get('client_name'),
+            'total': data.get('total', 0),
+            'synced': 1,
+            'created_at': data.get('created_at') or now,
+            'updated_at': now,
+        }
+        if date_col:
+            sale_values[date_col] = data.get('date') or data.get('sale_date') or now
+        if status_col:
+            sale_values[status_col] = data.get('status') or data.get('payment_status') or 'paid'
+
+        db.execute('BEGIN')
+        sale_id = insert_dynamic(db, 'sales', sale_values)
+
+        item_cols = table_columns(db, 'sale_items')
+        products_cols = table_columns(db, 'products')
+        for item in items:
+            name = item.get('name') or item.get('product_name') or ''
+            quantity = int(item.get('quantity') or 0)
+            unit_price = float(item.get('unit_price') or item.get('price') or 0)
+            line_total = item.get('total', quantity * unit_price)
+            insert_dynamic(db, 'sale_items', {
+                'sale_id': sale_id,
+                'product_id': item.get('product_id'),
+                'barcode': item.get('barcode'),
+                'name': name,
+                'product_name': name,
+                'quantity': quantity,
+                'unit_price': unit_price,
+                'price': unit_price,
+                'total': line_total,
+                'synced': 1,
+            })
+
+            if quantity and 'stock_quantity' in products_cols:
+                if item.get('product_id'):
+                    db.execute(
+                        'UPDATE products SET stock_quantity = stock_quantity - ? WHERE id = ?',
+                        (quantity, item.get('product_id'))
+                    )
+                elif item.get('barcode') and 'barcode' in products_cols:
+                    db.execute(
+                        'UPDATE products SET stock_quantity = stock_quantity - ? WHERE barcode = ?',
+                        (quantity, item.get('barcode'))
+                    )
+
+        db.commit()
+        return db_response(True, data={'id': sale_id, 'invoice': invoice})
+    except Exception as e:
+        db.rollback()
+        logger.error(f'Create sale error: {str(e)}')
+        return db_response(False, error='Erreur création vente', code='SERVER_ERROR', status=500)
+    finally:
+        db.close()
+
+
+@app.route('/api/sales/<int:sale_id>/status', methods=['PUT'])
+@require_auth
+def update_sale_status(sale_id):
+    db = get_db()
+    try:
+        status = (request.json or {}).get('status')
+        if not status:
+            return db_response(False, error='Statut requis', code='MISSING_STATUS', status=400)
+
+        columns = table_columns(db, 'sales')
+        status_col = pick_column(columns, 'status', 'payment_status')
+        if not status_col:
+            return db_response(False, error='Colonne statut introuvable', code='SCHEMA_ERROR', status=500)
+
+        db.execute(f'UPDATE sales SET {status_col} = ? WHERE id = ?', (status, sale_id))
+        db.commit()
+        return db_response(True, data={'id': sale_id, 'status': status})
+    except Exception as e:
+        db.rollback()
+        logger.error(f'Update sale status error: {str(e)}')
+        return db_response(False, error='Erreur mise à jour statut', code='SERVER_ERROR', status=500)
+    finally:
+        db.close()
+
+
+@app.route('/api/sales/<int:sale_id>', methods=['DELETE'])
+@require_auth
+def delete_sale(sale_id):
+    db = get_db()
+    try:
+        db.execute('BEGIN')
+        db.execute('DELETE FROM sale_items WHERE sale_id = ?', (sale_id,))
+        db.execute('DELETE FROM sales WHERE id = ?', (sale_id,))
+        db.commit()
+        return db_response(True, data={'id': sale_id})
+    except Exception as e:
+        db.rollback()
+        logger.error(f'Delete sale error: {str(e)}')
+        return db_response(False, error='Erreur suppression vente', code='SERVER_ERROR', status=500)
+    finally:
+        db.close()
+
+
+@app.route('/api/sales/stats')
+@require_auth
+def sales_stats():
+    db = get_db()
+    try:
+        columns = table_columns(db, 'sales')
+        date_col = pick_column(columns, 'sale_date', 'date', 'created_at') or 'created_at'
+        status_col = pick_column(columns, 'status', 'payment_status')
+        total_sales = db.execute('SELECT COUNT(*) as c, COALESCE(SUM(total),0) as t FROM sales').fetchone()
+        pending = 0
+        if status_col:
+            pending = db.execute(
+                f"SELECT COUNT(*) as c FROM sales WHERE {status_col} IN ('pending', 'a credit', 'credit', 'en attente')"
+            ).fetchone()['c']
+        today = db.execute(
+            f"SELECT COALESCE(SUM(total),0) as t FROM sales WHERE DATE({date_col}) = DATE('now')"
+        ).fetchone()['t']
+        return db_response(True, data={
+            'count': total_sales['c'],
+            'total': float(total_sales['t']),
+            'pending': pending,
+            'salesToday': float(today),
+        })
+    except Exception as e:
+        logger.error(f'Sales stats error: {str(e)}')
+        return db_response(False, error='Erreur statistiques ventes', code='SERVER_ERROR', status=500)
+    finally:
+        db.close()
+
+
 # ─── PRODUCTS / STOCK ─────────────────────────────────────────────────────────
 @app.route('/api/products')
 @require_auth
 def get_products():
     db = get_db()
     search = request.args.get('search', '')
+    like = f'%{search}%'
     rows = db.execute("""
         SELECT p.*, c.name as category_name
         FROM products p LEFT JOIN categories c ON p.category_id = c.id
         WHERE p.name LIKE ?
+           OR p.barcode LIKE ?
+           OR c.name LIKE ?
         ORDER BY p.name
-    """, (f'%{search}%',)).fetchall()
+    """, (like, like, like)).fetchall()
     db.close()
     return db_response(True, data=[dict(r) for r in rows])
 
@@ -310,6 +488,22 @@ def low_stock():
     return db_response(True, data=[dict(r) for r in rows])
 
 
+@app.route('/api/products/<int:product_id>', methods=['DELETE'])
+@require_auth
+def delete_product(product_id):
+    db = get_db()
+    try:
+        db.execute('DELETE FROM products WHERE id = ?', (product_id,))
+        db.commit()
+        return db_response(True, data={'id': product_id})
+    except Exception as e:
+        db.rollback()
+        logger.error(f'Delete product error: {str(e)}')
+        return db_response(False, error='Erreur suppression produit', code='SERVER_ERROR', status=500)
+    finally:
+        db.close()
+
+
 @app.route('/api/stock/movements')
 @require_auth
 def stock_movements():
@@ -321,6 +515,47 @@ def stock_movements():
     """).fetchall()
     db.close()
     return db_response(True, data=[dict(r) for r in rows])
+
+
+@app.route('/api/stock/update', methods=['POST'])
+@require_auth
+def update_stock():
+    db = get_db()
+    try:
+        data = request.json or {}
+        product_id = data.get('product_id')
+        quantity = int(data.get('quantity') or 0)
+        movement_type = (data.get('type') or 'adjustment').lower()
+        if not product_id or quantity == 0:
+            return db_response(False, error='Produit et quantité requis', code='INVALID_STOCK_UPDATE', status=400)
+
+        delta = quantity if movement_type in ('in', 'add', 'increase', 'receive', 'received') else -quantity
+        db.execute('BEGIN')
+        db.execute(
+            'UPDATE products SET stock_quantity = stock_quantity + ? WHERE id = ?',
+            (delta, product_id)
+        )
+
+        if 'stock_movements' in {
+            row['name'] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }:
+            insert_dynamic(db, 'stock_movements', {
+                'product_id': product_id,
+                'quantity': quantity,
+                'type': movement_type,
+                'movement_type': movement_type,
+                'created_at': datetime.now().isoformat(),
+            })
+
+        updated = db.execute('SELECT * FROM products WHERE id = ?', (product_id,)).fetchone()
+        db.commit()
+        return db_response(True, data=dict(updated) if updated else {'id': product_id})
+    except Exception as e:
+        db.rollback()
+        logger.error(f'Update stock error: {str(e)}')
+        return db_response(False, error='Erreur mise à jour stock', code='SERVER_ERROR', status=500)
+    finally:
+        db.close()
 
 
 # ─── EMPLOYEES ────────────────────────────────────────────────────────────────
@@ -341,8 +576,10 @@ def get_employees():
 def get_clients():
     db = get_db()
     search = request.args.get('search', '')
+    like = f'%{search}%'
     rows = db.execute(
-        "SELECT * FROM clients WHERE name LIKE ? ORDER BY name", (f'%{search}%',)
+        "SELECT * FROM clients WHERE name LIKE ? OR phone LIKE ? OR email LIKE ? ORDER BY name",
+        (like, like, like)
     ).fetchall()
     db.close()
     return db_response(True, data=[dict(r) for r in rows])
